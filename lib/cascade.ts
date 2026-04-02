@@ -7,7 +7,7 @@ type TypedSupabaseClient = SupabaseClient<Database>
 
 /**
  * Returns the id of the currently active sprint, or null if none exists.
- * Used internally by Rule D / Rule E.
+ * Used by Rule D and Rule E to scope cascade to the active sprint only.
  */
 async function getActiveSprintId(
   supabase: TypedSupabaseClient
@@ -25,7 +25,7 @@ async function getActiveSprintId(
 // ─── Rule A ───────────────────────────────────────────────────────────────────
 
 /**
- * Rule A — sprint_task → in_progress
+ * Rule A — sprint_task status → in_progress
  *
  * Auto-creates a workload_entry for the given sprint task if none exists.
  * Called whenever a sprint_task status is set to 'in_progress'.
@@ -93,6 +93,8 @@ export async function promoteMainTaskIfBacklog(
  * Fetches every sprint_task linked to this main_task across ALL sprints.
  * If every row has status 'done', sets the main_task status to 'done'.
  * Called whenever a sprint_task is patched to 'done'.
+ *
+ * Guard: a main_task with zero sprint_tasks is never auto-completed.
  */
 export async function completeMainTaskIfAllDone(
   mainTaskId: string,
@@ -105,7 +107,6 @@ export async function completeMainTaskIfAllDone(
 
   if (fetchError) throw new Error(`completeMainTaskIfAllDone (fetch): ${fetchError.message}`)
 
-  // Guard: a main_task with no sprint_tasks at all should not be auto-completed.
   if (!sprintTasks || sprintTasks.length === 0) return
 
   const allDone = sprintTasks.every((t) => t.status === 'done')
@@ -125,28 +126,31 @@ export async function completeMainTaskIfAllDone(
 /**
  * Rule D — main_task → blocked or stopped
  *
- * Option A (approved): sprint_task statuses are NOT changed.
- * The main_task status is the source of truth for the blocked/stopped state.
- * The UI reads the parent main_task status to infer that its sprint_tasks
- * are effectively blocked — no DB writes to sprint_tasks are made here.
+ * Finds all non-done sprint_tasks for this main_task in the active sprint
+ * and sets their status to match the main_task's new status ('blocked' or 'stopped').
  *
- * The active sprint id is resolved for future use (e.g. UI filtering)
- * but no mutations are performed.
+ * Scoped to the active sprint only — archived sprint tasks are left untouched.
+ * No-op if there is no active sprint.
  *
  * @param mainTaskId - The main task being blocked or stopped
- * @param newStatus  - 'blocked' | 'stopped'
+ * @param newStatus  - 'blocked' | 'stopped' — mirrored onto qualifying sprint_tasks
  */
 export async function cascadeMainTaskBlock(
   mainTaskId: string,
   newStatus: Extract<MainTaskStatus, 'blocked' | 'stopped'>,
   supabase: TypedSupabaseClient
 ): Promise<void> {
-  // Option A: no sprint_task status mutations.
-  // The main_task.status field is the authoritative signal.
-  // Suppress unused-parameter warnings — kept for call-site symmetry and future use.
-  void mainTaskId
-  void newStatus
-  void supabase
+  const activeSprintId = await getActiveSprintId(supabase)
+  if (!activeSprintId) return
+
+  const { error } = await supabase
+    .from('sprint_tasks')
+    .update({ status: newStatus as SprintTaskStatus })
+    .eq('main_task_id', mainTaskId)
+    .eq('sprint_id', activeSprintId)
+    .neq('status', 'done')
+
+  if (error) throw new Error(`cascadeMainTaskBlock (update): ${error.message}`)
 }
 
 // ─── Rule E ───────────────────────────────────────────────────────────────────
@@ -154,23 +158,53 @@ export async function cascadeMainTaskBlock(
 /**
  * Rule E — main_task → in_progress (from blocked/stopped)
  *
- * Option A (approved): sprint_task statuses are NOT changed.
- * Because Rule D did not mutate sprint_task statuses, there is nothing
- * to revert here. The main_task status returning to 'in_progress' is
- * itself the signal that sprint_tasks are unblocked.
+ * Finds all sprint_tasks in the active sprint for this main_task that are
+ * currently 'blocked' or 'stopped' (i.e. were set by Rule D) and reverts
+ * them to 'in_progress'.
  *
- * @param mainTaskId  - The main task being unblocked
- * @param prevStatus  - The status it held before this transition
+ * Also calls ensureWorkloadEntry (Rule A) for each reverted task, because
+ * transitioning to 'in_progress' should always guarantee a workload_entry exists.
+ *
+ * Scoped to the active sprint only. No-op if there is no active sprint.
+ *
+ * @param mainTaskId - The main task being unblocked
+ * @param prevStatus - The status it held before this transition (for documentation clarity)
  */
 export async function cascadeMainTaskUnblock(
   mainTaskId: string,
   prevStatus: Extract<MainTaskStatus, 'blocked' | 'stopped'>,
   supabase: TypedSupabaseClient
 ): Promise<void> {
-  // Option A: no sprint_task status mutations.
-  void mainTaskId
-  void prevStatus
-  void supabase
+  void prevStatus // informational — filter targets both 'blocked' and 'stopped'
+
+  const activeSprintId = await getActiveSprintId(supabase)
+  if (!activeSprintId) return
+
+  // Fetch the sprint_tasks that Rule D previously blocked/stopped.
+  const { data: affectedTasks, error: fetchError } = await supabase
+    .from('sprint_tasks')
+    .select('id')
+    .eq('main_task_id', mainTaskId)
+    .eq('sprint_id', activeSprintId)
+    .in('status', ['blocked', 'stopped'])
+
+  if (fetchError) throw new Error(`cascadeMainTaskUnblock (fetch): ${fetchError.message}`)
+  if (!affectedTasks || affectedTasks.length === 0) return
+
+  const affectedIds = affectedTasks.map((t) => t.id)
+
+  // Revert all of them to in_progress in one query.
+  const { error: updateError } = await supabase
+    .from('sprint_tasks')
+    .update({ status: 'in_progress' })
+    .in('id', affectedIds)
+
+  if (updateError) throw new Error(`cascadeMainTaskUnblock (update): ${updateError.message}`)
+
+  // Rule A: guarantee a workload_entry exists for every task now in_progress.
+  await Promise.all(
+    affectedIds.map((id) => ensureWorkloadEntry(id, supabase))
+  )
 }
 
 // ─── Orchestrators ────────────────────────────────────────────────────────────
@@ -192,13 +226,13 @@ export async function onSprintTaskCreated(
 /**
  * Called from PATCH /api/sprint-tasks/[id] after a sprint_task is updated.
  *
- * Applies (in order):
+ * Applies in order:
  *   Rule A — if newStatus === 'in_progress'
  *   Rule B — always (any field modification counts)
  *   Rule C — if newStatus === 'done'
  *
  * @param sprintTaskId - The task that was patched
- * @param newStatus    - The status value sent in the patch body (undefined if status was not changed)
+ * @param newStatus    - The status value from the patch body (undefined if status was not changed)
  * @param mainTaskId   - The parent main task id
  */
 export async function onSprintTaskPatched(
@@ -221,13 +255,13 @@ export async function onSprintTaskPatched(
 /**
  * Called from PATCH /api/main-tasks/[id] after a main_task status changes.
  *
- * Applies (in order):
+ * Applies in order:
  *   Rule D — if newStatus is 'blocked' or 'stopped'
  *   Rule E — if newStatus is 'in_progress' and prevStatus was 'blocked' or 'stopped'
  *
- * @param mainTaskId  - The main task that was patched
- * @param newStatus   - The status value after the patch
- * @param prevStatus  - The status value before the patch
+ * @param mainTaskId - The main task that was patched
+ * @param newStatus  - The status value after the patch
+ * @param prevStatus - The status value before the patch
  */
 export async function onMainTaskStatusChanged(
   mainTaskId: string,

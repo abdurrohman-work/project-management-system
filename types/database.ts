@@ -105,32 +105,42 @@ export interface Database {
         Row: Sprint
         Insert: InsertSprint
         Update: UpdateSprint
+        Relationships: []
       }
       main_tasks: {
         Row: MainTask
         Insert: InsertMainTask
         Update: UpdateMainTask
+        Relationships: []
       }
       sprint_tasks: {
         Row: SprintTask
         Insert: InsertSprintTask
         Update: UpdateSprintTask
+        Relationships: []
       }
       workload_entries: {
         Row: WorkloadEntry
         Insert: InsertWorkloadEntry
         Update: UpdateWorkloadEntry
+        Relationships: []
       }
       calendar_events: {
         Row: CalendarEvent
         Insert: InsertCalendarEvent
         Update: UpdateCalendarEvent
+        Relationships: []
       }
       workload_reports: {
         Row: WorkloadReport
         Insert: InsertWorkloadReport
         Update: never
+        Relationships: []
       }
     }
+    Views: { [_ in never]: never }
+    Functions: { [_ in never]: never }
+    Enums: { [_ in never]: never }
+    CompositeTypes: { [_ in never]: never }
   }
 }

@@ -1,7 +1,7 @@
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export type MainTaskStatus = 'backlog' | 'in_progress' | 'blocked' | 'stopped' | 'done'
-export type SprintTaskStatus = 'not_started' | 'in_progress' | 'done' | 'partly_completed'
+export type SprintTaskStatus = 'not_started' | 'in_progress' | 'done' | 'partly_completed' | 'blocked' | 'stopped'
 export type WorkloadStatus = 'not_started' | 'in_progress' | 'done' | 'halted'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical'
 export type SprintStatus = 'active' | 'archived'

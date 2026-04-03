@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { MainTask, MainTaskStatus, TaskPriority } from '@/types/database'
+import type { MainTask, MainTaskStatus, TaskPriority, InsertMainTask } from '@/types/database'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -159,14 +159,16 @@ export default function DashboardPage() {
 
     setSubmitting(true)
 
+    const payload: InsertMainTask = {
+      name,
+      status: 'backlog',
+      priority: formPriority,
+      category: formCategory.trim() || null,
+    }
+
     const { data, error } = await supabase
       .from('main_tasks')
-      .insert({
-        name,
-        status: 'backlog',
-        priority: formPriority,
-        category: formCategory.trim() || null,
-      })
+      .insert(payload)
       .select()
       .single()
 

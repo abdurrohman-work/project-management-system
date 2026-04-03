@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { Database, MainTaskStatus, SprintTaskStatus } from '@/types/database'
+import { recalculateAll } from '@/lib/calculations'
 
 type TypedSupabaseClient = SupabaseClient<Database>
 
@@ -249,6 +250,7 @@ export async function onSprintTaskPatched(
 
   if (newStatus === 'done') {
     await completeMainTaskIfAllDone(mainTaskId, supabase) // Rule C
+    await recalculateAll(mainTaskId, supabase)            // recalc progress + time_spent
   }
 }
 
@@ -280,4 +282,22 @@ export async function onMainTaskStatusChanged(
   ) {
     await cascadeMainTaskUnblock(mainTaskId, prevStatus, supabase) // Rule E
   }
+}
+
+/**
+ * Called from POST /api/workload-entries, PATCH /api/workload-entries/[id],
+ * and DELETE /api/workload-entries/[id] after any workload_entry mutation.
+ *
+ * Any change to a workload_entry (create, update, delete) can affect both
+ * the progress weighting (planned_time) and time_spent (actual_time) of the
+ * parent main task, so both are recalculated.
+ *
+ * @param mainTaskId - The parent main task id (resolved by the API route via
+ *                     the sprint_task → main_task join before calling this)
+ */
+export async function onWorkloadEntryChanged(
+  mainTaskId: string,
+  supabase: TypedSupabaseClient
+): Promise<void> {
+  await recalculateAll(mainTaskId, supabase)
 }

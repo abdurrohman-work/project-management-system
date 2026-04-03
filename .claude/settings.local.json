@@ -4,7 +4,17 @@
       "mcp__claude_ai_Supabase__list_projects",
       "mcp__claude_ai_Supabase__list_tables",
       "mcp__claude_ai_Supabase__execute_sql",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/.claude/worktrees/pensive-cray/node_modules/next -type f \\\\\\(-name *.md -o -name *.d.ts \\\\\\))",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next -type f \\\\\\(-name *.d.ts -o -name README* -o -name CHANGELOG* \\\\\\))",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist/server -type f -name *.d.ts)",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist/server -type f -name *route*)",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist -type f -name *.d.ts)",
+      "Bash(xargs grep:*)",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next -type f -name CHANGELOG* -o -name README*)",
+      "Bash(grep -r \"AppRouteHandlerFn\\\\|export.*function\" /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist/server/route-modules/app-route/ --include=*.d.ts)",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next -type f \\\\\\(-name *.md -o -name *.txt \\\\\\))",
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist/docs -type f -name *.md)"
     ]
   }
 }

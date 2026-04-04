@@ -36,7 +36,7 @@ const PRIORITY_BADGE: Record<TaskPriority, { bg: string; color: string }> = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDate(dt: string | null): { text: string; muted: boolean } {
+function formatDeadline(dt: string | null): { text: string; muted: boolean } {
   if (!dt) return { text: '—', muted: true }
   const d = new Date(dt)
   const text = d.toLocaleString('en-US', {
@@ -108,7 +108,7 @@ function MetricCard({ label, value, color }: { label: string; value: number; col
 function SkeletonRow() {
   return (
     <tr>
-      {[80, 200, 100, 90, 80, 110, 110, 130, 120, 80, 120, 150].map((w, i) => (
+      {[80, 200, 100, 90, 80, 110, 130, 120, 80].map((w, i) => (
         <td key={i} style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}` }}>
           <div style={{
             height: 14, width: w, borderRadius: 4,
@@ -124,14 +124,14 @@ function SkeletonRow() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [tasks, setTasks]               = useState<MainTask[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [showForm, setShowForm]         = useState(false)
-  const [submitting, setSubmitting]     = useState(false)
-  const [formName, setFormName]         = useState('')
+  const [tasks, setTasks]           = useState<MainTask[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [showForm, setShowForm]     = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [formName, setFormName]     = useState('')
   const [formCategory, setFormCategory] = useState('')
   const [formPriority, setFormPriority] = useState<TaskPriority>('medium')
-  const [formError, setFormError]       = useState<string | null>(null)
+  const [formError, setFormError]   = useState<string | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -316,7 +316,7 @@ export default function DashboardPage() {
         overflow: 'hidden',
       }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: 1400, borderCollapse: 'collapse' }}>
+          <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
 
             {/* Header */}
             <thead>
@@ -324,16 +324,13 @@ export default function DashboardPage() {
                 {[
                   { label: 'ID',         width: 80  },
                   { label: 'Task',       width: 'auto' },
-                  { label: 'Category',   width: 110 },
+                  { label: 'Category',   width: 120 },
                   { label: 'Status',     width: 110 },
-                  { label: 'Priority',   width: 85  },
-                  { label: 'Taken At',   width: 130 },
-                  { label: 'Deadline',   width: 130 },
-                  { label: 'Task Owner', width: 130 },
-                  { label: 'Progress',   width: 150 },
-                  { label: 'Time Spent', width: 95  },
-                  { label: 'Blocked By', width: 130 },
-                  { label: 'Note',       width: 160 },
+                  { label: 'Priority',   width: 90  },
+                  { label: 'Deadline',   width: 150 },
+                  { label: 'Task Owner', width: 160 },
+                  { label: 'Progress',   width: 160 },
+                  { label: 'Time Spent', width: 100 },
                 ].map(col => (
                   <th
                     key={col.label}
@@ -362,7 +359,7 @@ export default function DashboardPage() {
               ) : tasks.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={9}
                     style={{
                       padding: '60px 24px',
                       textAlign: 'center',
@@ -376,8 +373,7 @@ export default function DashboardPage() {
                 </tr>
               ) : (
                 tasks.map(task => {
-                  const deadline  = formatDate(task.deadline)
-                  const takenAt   = formatDate(task.taken_at)
+                  const deadline = formatDeadline(task.deadline)
                   return (
                     <tr
                       key={task.id}
@@ -392,7 +388,7 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       {/* Task */}
-                      <td style={{ padding: '12px 16px', color: C.text, fontSize: 13, fontWeight: 500, maxWidth: 260 }}>
+                      <td style={{ padding: '12px 16px', color: C.text, fontSize: 13, fontWeight: 500, maxWidth: 280 }}>
                         <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {task.name}
                         </span>
@@ -409,16 +405,12 @@ export default function DashboardPage() {
                       <td style={{ padding: '12px 16px' }}>
                         <PriorityBadge priority={task.priority} />
                       </td>
-                      {/* Taken At */}
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: takenAt.muted ? C.muted : C.text, whiteSpace: 'nowrap' }}>
-                        {takenAt.text}
-                      </td>
                       {/* Deadline */}
                       <td style={{ padding: '12px 16px', fontSize: 12, color: deadline.muted ? C.muted : C.text, whiteSpace: 'nowrap' }}>
                         {deadline.text}
                       </td>
                       {/* Task Owner */}
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: task.task_owner ? C.text : C.muted, whiteSpace: 'nowrap', maxWidth: 130 }}>
+                      <td style={{ padding: '12px 16px', fontSize: 12, color: task.task_owner ? C.text : C.muted, whiteSpace: 'nowrap', maxWidth: 160 }}>
                         <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {task.task_owner ?? '—'}
                         </span>
@@ -430,18 +422,6 @@ export default function DashboardPage() {
                       {/* Time Spent */}
                       <td style={{ padding: '12px 16px', fontSize: 12, color: task.time_spent ? C.text : C.muted, whiteSpace: 'nowrap' }}>
                         {formatTime(task.time_spent)}
-                      </td>
-                      {/* Blocked By */}
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: task.blocked_by ? C.text : C.muted, maxWidth: 130 }}>
-                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {task.blocked_by ?? '—'}
-                        </span>
-                      </td>
-                      {/* Note */}
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: task.note ? C.text : C.muted, maxWidth: 180 }}>
-                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {task.note ?? '—'}
-                        </span>
                       </td>
                     </tr>
                   )

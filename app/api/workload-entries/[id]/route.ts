@@ -60,15 +60,10 @@ export async function PATCH(
     }
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 })
 
-    // Cascade: propagate status to sprint_task (Rule F) + recalculate progress/time_spent
+    // Cascade: recalculate main task progress + time_spent
     const mainTaskId = (data as unknown as { sprint_tasks: { main_task_id: string } }).sprint_tasks.main_task_id
     try {
-      await onWorkloadEntryChanged(
-        mainTaskId,
-        supabase,
-        data.sprint_task_id,
-        status !== undefined ? (status as WorkloadStatus) : undefined,
-      )
+      await onWorkloadEntryChanged(mainTaskId, supabase)
     } catch (cascadeErr) {
       console.error('Cascade error after workload_entry PATCH:', cascadeErr)
     }

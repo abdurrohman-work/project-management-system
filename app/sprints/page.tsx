@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { minutesToHours } from '@/lib/time'
 import type {
   Sprint,
@@ -59,18 +59,6 @@ const ALL_STATUSES: SprintTaskStatus[] = [
   'not_started', 'in_progress', 'done', 'partly_completed', 'blocked', 'stopped',
 ]
 
-// Column definitions for sprint task table
-const ST_COLS = [
-  { label: '',          width: 36   }, // expand toggle
-  { label: 'ST ID',     width: 68   },
-  { label: 'Task',      width: 'auto' as const },
-  { label: 'Status',    width: 120  },
-  { label: 'Priority',  width: 90   },
-  { label: 'Blocked By',width: 130  },
-  { label: 'Link',      width: 110  },
-  { label: 'Note',      width: 200  },
-]
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatRange(start: string, end: string): string {
@@ -96,6 +84,7 @@ export default function SprintsPage() {
   const [addName,      setAddName]      = useState('')
   const [addPriority,  setAddPriority]  = useState<TaskPriority>('medium')
   const [addLoading,   setAddLoading]   = useState(false)
+  const [hoveredRow,   setHoveredRow]   = useState<string | null>(null)
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -131,6 +120,7 @@ export default function SprintsPage() {
 
   // ── Status change ─────────────────────────────────────────────────────────
   async function handleStatusChange(taskId: string, newStatus: SprintTaskStatus) {
+    // Optimistic update
     setGroups(prev => prev.map(g => ({
       ...g,
       sprintTasks: g.sprintTasks.map(t =>
@@ -178,25 +168,6 @@ export default function SprintsPage() {
     setAddLoading(false)
   }
 
-  // ── Shared cell style ─────────────────────────────────────────────────────
-  const thStyle: React.CSSProperties = {
-    padding: '8px 12px',
-    textAlign: 'left',
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    color: C.muted,
-    whiteSpace: 'nowrap',
-    borderBottom: `1px solid ${C.border}`,
-  }
-
-  const tdBase: React.CSSProperties = {
-    padding: '9px 12px',
-    fontSize: 13,
-    verticalAlign: 'middle',
-  }
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: '32px 32px', backgroundColor: C.bg, minHeight: '100vh' }}>
@@ -241,16 +212,19 @@ export default function SprintsPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {groups.map(({ mainTask, sprintTasks }) => {
           const isCollapsed = collapsed.has(mainTask.id)
-          const mt  = MT_STATUS_BADGE[mainTask.status]
+          const mt = MT_STATUS_BADGE[mainTask.status]
           const pct = Math.min(100, Math.max(0, mainTask.progress))
-          const NCOLS = ST_COLS.length
 
           return (
             <div
               key={mainTask.id}
-              style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}
+              style={{
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                overflow: 'hidden',
+              }}
             >
-              {/* ── Group header ─────────────────────────────────────────── */}
+              {/* Group header — clickable to collapse */}
               <div
                 onClick={() => toggleGroup(mainTask.id)}
                 style={{
@@ -278,7 +252,12 @@ export default function SprintsPage() {
                 </svg>
 
                 {/* MT display_id */}
-                <span style={{ fontFamily: 'monospace', fontSize: 12, color: C.accent, flexShrink: 0 }}>
+                <span style={{
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  color: C.accent,
+                  flexShrink: 0,
+                }}>
                   {mainTask.display_id ?? '—'}
                 </span>
 
@@ -289,17 +268,32 @@ export default function SprintsPage() {
 
                 {/* Status badge */}
                 <span style={{
-                  backgroundColor: mt.bg, color: mt.color,
-                  fontSize: 11, fontWeight: 500,
-                  padding: '2px 8px', borderRadius: 99, flexShrink: 0,
+                  backgroundColor: mt.bg,
+                  color: mt.color,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: '2px 8px',
+                  borderRadius: 99,
+                  flexShrink: 0,
                 }}>
                   {mt.label}
                 </span>
 
                 {/* Mini progress bar */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <div style={{ width: 72, height: 4, backgroundColor: C.border, borderRadius: 99, overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', backgroundColor: '#4ade80', borderRadius: 99 }} />
+                  <div style={{
+                    width: 72,
+                    height: 4,
+                    backgroundColor: C.border,
+                    borderRadius: 99,
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      backgroundColor: '#4ade80',
+                      borderRadius: 99,
+                    }} />
                   </div>
                   <span style={{ fontSize: 11, color: C.muted, minWidth: 28 }}>
                     {pct.toFixed(0)}%
@@ -307,276 +301,260 @@ export default function SprintsPage() {
                 </div>
               </div>
 
-              {/* ── Sprint task table ─────────────────────────────────────── */}
+              {/* Sprint task rows */}
               {!isCollapsed && (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <colgroup>
-                    {ST_COLS.map((col, i) => (
-                      <col key={i} style={{ width: col.width === 'auto' ? undefined : col.width }} />
-                    ))}
-                  </colgroup>
+                <>
+                  {sprintTasks.map((task) => {
+                    const entry = task.workload_entries[0] ?? null
+                    const isExpanded = expanded.has(task.id)
+                    const isHovered = hoveredRow === task.id
+                    const st = ST_STATUS_BADGE[task.status]
+                    const pr = PRIORITY_BADGE[task.priority]
 
-                  {/* Table head */}
-                  <thead>
-                    <tr style={{ backgroundColor: C.sidebar }}>
-                      {ST_COLS.map(col => (
-                        <th key={col.label} style={thStyle}>{col.label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-
-                  {/* Task rows */}
-                  <tbody>
-                    {sprintTasks.map((task) => {
-                      const entry      = task.workload_entries[0] ?? null
-                      const isExpanded = expanded.has(task.id)
-                      const st         = ST_STATUS_BADGE[task.status]
-                      const pr         = PRIORITY_BADGE[task.priority]
-
-                      return (
-                        <Fragment key={task.id}>
-                          <tr
-                            style={{ borderTop: `1px solid ${C.border}`, backgroundColor: C.bg }}
-                            onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.surface)}
-                            onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.bg)}
-                          >
-                            {/* Expand toggle */}
-                            <td style={{ ...tdBase, padding: '9px 0 9px 12px', width: 36 }}>
-                              <button
-                                onClick={() => toggleRow(task.id)}
-                                style={{
-                                  background: 'none', border: 'none',
-                                  cursor: 'pointer', padding: 0,
-                                  color: C.muted, lineHeight: 1,
-                                }}
-                                aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                              >
-                                <svg
-                                  width="12" height="12" viewBox="0 0 24 24"
-                                  fill="none" stroke="currentColor" strokeWidth={2.5}
-                                  strokeLinecap="round" strokeLinejoin="round"
-                                  style={{
-                                    transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                                    transition: 'transform 0.15s',
-                                  }}
-                                >
-                                  <path d="M9 5l7 7-7 7" />
-                                </svg>
-                              </button>
-                            </td>
-
-                            {/* ST ID */}
-                            <td style={tdBase}>
-                              <span style={{ fontFamily: 'monospace', fontSize: 12, color: C.accent }}>
-                                {task.display_id ?? '—'}
-                              </span>
-                            </td>
-
-                            {/* Task name */}
-                            <td style={{ ...tdBase, color: C.text, fontWeight: 500, maxWidth: 280 }}>
-                              <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {task.name}
-                              </span>
-                            </td>
-
-                            {/* Status dropdown */}
-                            <td style={tdBase}>
-                              <select
-                                value={task.status}
-                                onChange={(e) =>
-                                  handleStatusChange(task.id, e.target.value as SprintTaskStatus)
-                                }
-                                style={{
-                                  backgroundColor: st.bg, color: st.color,
-                                  border: 'none', borderRadius: 99,
-                                  fontSize: 11, fontWeight: 500,
-                                  padding: '3px 10px',
-                                  cursor: 'pointer', outline: 'none',
-                                  appearance: 'none',
-                                }}
-                              >
-                                {ALL_STATUSES.map(s => (
-                                  <option key={s} value={s} style={{ backgroundColor: '#1e2d3d', color: '#fff' }}>
-                                    {ST_STATUS_BADGE[s].label}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-
-                            {/* Priority */}
-                            <td style={tdBase}>
-                              <span style={{
-                                backgroundColor: pr.bg, color: pr.color,
-                                fontSize: 11, fontWeight: 500,
-                                padding: '2px 8px', borderRadius: 99,
-                                textTransform: 'capitalize',
-                              }}>
-                                {task.priority}
-                              </span>
-                            </td>
-
-                            {/* Blocked By */}
-                            <td style={{ ...tdBase, fontSize: 12, color: task.blocked_by ? C.text : C.muted, maxWidth: 130 }}>
-                              <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {task.blocked_by ?? '—'}
-                              </span>
-                            </td>
-
-                            {/* Link */}
-                            <td style={{ ...tdBase, fontSize: 12, maxWidth: 110 }}>
-                              {task.link ? (
-                                <a
-                                  href={task.link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{
-                                    color: C.accent,
-                                    textDecoration: 'underline',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    display: 'block',
-                                  }}
-                                >
-                                  {task.link.replace(/^https?:\/\//, '')}
-                                </a>
-                              ) : (
-                                <span style={{ color: C.muted }}>—</span>
-                              )}
-                            </td>
-
-                            {/* Note */}
-                            <td style={{ ...tdBase, fontSize: 12, color: task.note ? C.text : C.muted, maxWidth: 200 }}>
-                              <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {task.note ?? '—'}
-                              </span>
-                            </td>
-                          </tr>
-
-                          {/* Workload entry panel */}
-                          {isExpanded && (
-                            <tr style={{ borderTop: `1px solid ${C.border}` }}>
-                              <td
-                                colSpan={NCOLS}
-                                style={{ backgroundColor: C.surface, padding: '12px 48px' }}
-                              >
-                                {entry ? (
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 24px' }}>
-                                    <div>
-                                      <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>SP (h)</p>
-                                      <p style={{ margin: 0, fontSize: 13, color: C.text }}>{displayTime(entry.planned_time)}</p>
-                                    </div>
-                                    <div>
-                                      <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>AP (h)</p>
-                                      <p style={{ margin: 0, fontSize: 13, color: C.text }}>{displayTime(entry.actual_time)}</p>
-                                    </div>
-                                    <div>
-                                      <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Start</p>
-                                      <p style={{ margin: 0, fontSize: 13, color: entry.start_date ? C.text : C.muted }}>
-                                        {entry.start_date ?? '—'}
-                                      </p>
-                                    </div>
-                                    <div>
-                                      <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due</p>
-                                      <p style={{ margin: 0, fontSize: 13, color: entry.due_date ? C.text : C.muted }}>
-                                        {entry.due_date ?? '—'}
-                                      </p>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <p style={{ margin: 0, fontSize: 12, color: C.muted }}>
-                                    No workload entry. Set status to{' '}
-                                    <span style={{ color: C.text }}>In Progress</span> to auto-create one.
-                                  </p>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      )
-                    })}
-
-                    {/* Add subtask row */}
-                    <tr style={{ borderTop: `1px solid ${C.border}` }}>
-                      <td
-                        colSpan={NCOLS}
-                        style={{ padding: '8px 16px', backgroundColor: C.bg }}
+                    return (
+                      <div
+                        key={task.id}
+                        style={{ borderTop: `1px solid ${C.border}` }}
                       >
-                        {addingFor === mainTask.id ? (
-                          <form
-                            onSubmit={(e) => handleAdd(e, mainTask.id)}
-                            style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
-                          >
-                            <input
-                              type="text"
-                              value={addName}
-                              onChange={(e) => setAddName(e.target.value)}
-                              placeholder="Subtask name"
-                              autoFocus
-                              style={{
-                                flex: 1, minWidth: 160,
-                                backgroundColor: C.bg,
-                                border: `1px solid ${C.border}`,
-                                borderRadius: 6, color: C.text,
-                                fontSize: 13, padding: '5px 10px', outline: 'none',
-                              }}
-                            />
-                            <select
-                              value={addPriority}
-                              onChange={(e) => setAddPriority(e.target.value as TaskPriority)}
-                              style={{
-                                backgroundColor: C.surface,
-                                border: `1px solid ${C.border}`,
-                                borderRadius: 6, color: C.text,
-                                fontSize: 12, padding: '5px 8px',
-                                outline: 'none', cursor: 'pointer',
-                              }}
-                            >
-                              <option value="low">Low</option>
-                              <option value="medium">Medium</option>
-                              <option value="high">High</option>
-                              <option value="critical">Critical</option>
-                            </select>
-                            <button
-                              type="submit"
-                              disabled={addLoading || !addName.trim()}
-                              style={{
-                                backgroundColor: C.accent, color: '#fff',
-                                border: 'none', borderRadius: 6,
-                                fontSize: 12, fontWeight: 500, padding: '5px 14px',
-                                cursor: addLoading || !addName.trim() ? 'not-allowed' : 'pointer',
-                                opacity: addLoading || !addName.trim() ? 0.5 : 1,
-                              }}
-                            >
-                              {addLoading ? 'Adding…' : 'Add'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setAddingFor(null); setAddName(''); setAddPriority('medium') }}
-                              style={{
-                                backgroundColor: 'transparent', color: C.muted,
-                                border: `1px solid ${C.border}`,
-                                borderRadius: 6, fontSize: 12, padding: '5px 12px', cursor: 'pointer',
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          </form>
-                        ) : (
+                        {/* Task row */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '8px 16px',
+                            backgroundColor: isHovered ? C.surface : C.bg,
+                            transition: 'background-color 0.1s',
+                          }}
+                          onMouseEnter={() => setHoveredRow(task.id)}
+                          onMouseLeave={() => setHoveredRow(null)}
+                        >
+                          {/* Expand toggle */}
                           <button
-                            onClick={() => { setAddingFor(mainTask.id); setAddName(''); setAddPriority('medium') }}
+                            onClick={() => toggleRow(task.id)}
                             style={{
-                              background: 'none', border: 'none',
-                              color: C.accent, fontSize: 12, cursor: 'pointer', padding: '2px 0',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                              flexShrink: 0,
+                              color: C.muted,
+                              lineHeight: 1,
+                            }}
+                            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                          >
+                            <svg
+                              width="12" height="12" viewBox="0 0 24 24"
+                              fill="none" stroke="currentColor" strokeWidth={2.5}
+                              strokeLinecap="round" strokeLinejoin="round"
+                              style={{
+                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.15s',
+                              }}
+                            >
+                              <path d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+
+                          {/* ST display_id */}
+                          <span style={{
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            color: C.accent,
+                            flexShrink: 0,
+                            minWidth: 52,
+                          }}>
+                            {task.display_id ?? '—'}
+                          </span>
+
+                          {/* Task name */}
+                          <span style={{ fontSize: 13, color: C.text, flex: 1 }}>
+                            {task.name}
+                          </span>
+
+                          {/* Status dropdown */}
+                          <select
+                            value={task.status}
+                            onChange={(e) =>
+                              handleStatusChange(task.id, e.target.value as SprintTaskStatus)
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              backgroundColor: st.bg,
+                              color: st.color,
+                              border: 'none',
+                              borderRadius: 99,
+                              fontSize: 11,
+                              fontWeight: 500,
+                              padding: '3px 10px',
+                              cursor: 'pointer',
+                              flexShrink: 0,
+                              outline: 'none',
+                              appearance: 'none',
                             }}
                           >
-                            + Add subtask
-                          </button>
+                            {ALL_STATUSES.map(s => (
+                              <option key={s} value={s} style={{ backgroundColor: '#1e2d3d', color: '#fff' }}>
+                                {ST_STATUS_BADGE[s].label}
+                              </option>
+                            ))}
+                          </select>
+
+                          {/* Priority badge */}
+                          <span style={{
+                            backgroundColor: pr.bg,
+                            color: pr.color,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            padding: '2px 8px',
+                            borderRadius: 99,
+                            flexShrink: 0,
+                            textTransform: 'capitalize',
+                          }}>
+                            {task.priority}
+                          </span>
+                        </div>
+
+                        {/* Workload entry panel */}
+                        {isExpanded && (
+                          <div style={{
+                            borderTop: `1px solid ${C.border}`,
+                            backgroundColor: C.surface,
+                            padding: '12px 40px',
+                          }}>
+                            {entry ? (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 24px' }}>
+                                <div>
+                                  <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>SP (h)</p>
+                                  <p style={{ margin: 0, fontSize: 13, color: C.text }}>{displayTime(entry.planned_time)}</p>
+                                </div>
+                                <div>
+                                  <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>AP (h)</p>
+                                  <p style={{ margin: 0, fontSize: 13, color: C.text }}>{displayTime(entry.actual_time)}</p>
+                                </div>
+                                <div>
+                                  <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Start</p>
+                                  <p style={{ margin: 0, fontSize: 13, color: entry.start_date ? C.text : C.muted }}>
+                                    {entry.start_date ?? '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={{ margin: '0 0 4px', fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due</p>
+                                  <p style={{ margin: 0, fontSize: 13, color: entry.due_date ? C.text : C.muted }}>
+                                    {entry.due_date ?? '—'}
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <p style={{ margin: 0, fontSize: 12, color: C.muted }}>
+                                No workload entry. Set status to{' '}
+                                <span style={{ color: C.text }}>In Progress</span> to auto-create one.
+                              </p>
+                            )}
+                          </div>
                         )}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                      </div>
+                    )
+                  })}
+
+                  {/* Add subtask row */}
+                  <div style={{
+                    borderTop: `1px solid ${C.border}`,
+                    padding: '8px 16px',
+                    backgroundColor: C.bg,
+                  }}>
+                    {addingFor === mainTask.id ? (
+                      <form
+                        onSubmit={(e) => handleAdd(e, mainTask.id)}
+                        style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+                      >
+                        <input
+                          type="text"
+                          value={addName}
+                          onChange={(e) => setAddName(e.target.value)}
+                          placeholder="Subtask name"
+                          autoFocus
+                          style={{
+                            flex: 1,
+                            minWidth: 160,
+                            backgroundColor: C.bg,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 6,
+                            color: C.text,
+                            fontSize: 13,
+                            padding: '5px 10px',
+                            outline: 'none',
+                          }}
+                        />
+                        <select
+                          value={addPriority}
+                          onChange={(e) => setAddPriority(e.target.value as TaskPriority)}
+                          style={{
+                            backgroundColor: C.surface,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 6,
+                            color: C.text,
+                            fontSize: 12,
+                            padding: '5px 8px',
+                            outline: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                          <option value="critical">Critical</option>
+                        </select>
+                        <button
+                          type="submit"
+                          disabled={addLoading || !addName.trim()}
+                          style={{
+                            backgroundColor: C.accent,
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            padding: '5px 14px',
+                            cursor: addLoading || !addName.trim() ? 'not-allowed' : 'pointer',
+                            opacity: addLoading || !addName.trim() ? 0.5 : 1,
+                          }}
+                        >
+                          {addLoading ? 'Adding…' : 'Add'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setAddingFor(null); setAddName(''); setAddPriority('medium') }}
+                          style={{
+                            backgroundColor: 'transparent',
+                            color: C.muted,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 6,
+                            fontSize: 12,
+                            padding: '5px 12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <button
+                        onClick={() => { setAddingFor(mainTask.id); setAddName(''); setAddPriority('medium') }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: C.accent,
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          padding: '2px 0',
+                        }}
+                      >
+                        + Add subtask
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )

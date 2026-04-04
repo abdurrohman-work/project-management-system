@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
-import type { Database, MainTaskStatus, SprintTaskStatus } from '@/types/database'
+import type { Database, MainTaskStatus, SprintTaskStatus, WorkloadStatus } from '@/types/database'
 import { recalculateAll } from '@/lib/calculations'
 
 type TypedSupabaseClient = SupabaseClient<Database>
@@ -228,6 +228,90 @@ export async function cascadeMainTaskUnblock(
   )
 }
 
+// ─── Rule F ───────────────────────────────────────────────────────────────────
+
+/**
+ * Workload status → sprint_task status mapping.
+ * halted maps to partly_completed (mirrors original behaviour).
+ */
+const WORKLOAD_TO_SPRINT_STATUS: Record<WorkloadStatus, SprintTaskStatus> = {
+  not_started: 'not_started',
+  in_progress: 'in_progress',
+  done:        'done',
+  halted:      'partly_completed',
+}
+
+/**
+ * Rule F — workload_entry status changes → propagate to sprint_task
+ *
+ * Strategy (mirrors original):
+ *   1. If the sprint_task that owns this entry belongs to the ACTIVE sprint →
+ *      update it directly.
+ *   2. If the sprint_task is in an ARCHIVED sprint → find the sprint_task for
+ *      the same main_task that lives in the active sprint and update that one.
+ *   3. Fallback (no active sprint, or no active-sprint task for this main_task) →
+ *      update the original sprint_task regardless of sprint.
+ *
+ * @param sprintTaskId   - The sprint_task that owns the workload_entry
+ * @param workloadStatus - The new workload_entry status
+ */
+export async function propagateWorkloadStatusToSprintTask(
+  sprintTaskId: string,
+  workloadStatus: WorkloadStatus,
+  supabase: TypedSupabaseClient
+): Promise<void> {
+  const newStatus = WORKLOAD_TO_SPRINT_STATUS[workloadStatus]
+
+  // Fetch the owning sprint_task (need sprint_id + main_task_id)
+  const { data: sprintTask, error: fetchError } = await supabase
+    .from('sprint_tasks')
+    .select('id, sprint_id, main_task_id')
+    .eq('id', sprintTaskId)
+    .single()
+
+  if (fetchError) throw new Error(`propagateWorkloadStatusToSprintTask (fetch): ${fetchError.message}`)
+
+  const activeSprintId = await getActiveSprintId(supabase)
+
+  // Case 1: sprint_task is already in the active sprint → update directly
+  if (activeSprintId && sprintTask.sprint_id === activeSprintId) {
+    const { error } = await supabase
+      .from('sprint_tasks')
+      .update({ status: newStatus })
+      .eq('id', sprintTaskId)
+    if (error) throw new Error(`propagateWorkloadStatusToSprintTask (update active): ${error.message}`)
+    return
+  }
+
+  // Case 2: sprint_task is archived — try to find one for the same main_task in the active sprint
+  if (activeSprintId) {
+    const { data: activeTask, error: activeFetchError } = await supabase
+      .from('sprint_tasks')
+      .select('id')
+      .eq('main_task_id', sprintTask.main_task_id)
+      .eq('sprint_id', activeSprintId)
+      .maybeSingle()
+
+    if (activeFetchError) throw new Error(`propagateWorkloadStatusToSprintTask (fetch active task): ${activeFetchError.message}`)
+
+    if (activeTask) {
+      const { error } = await supabase
+        .from('sprint_tasks')
+        .update({ status: newStatus })
+        .eq('id', activeTask.id)
+      if (error) throw new Error(`propagateWorkloadStatusToSprintTask (update via active): ${error.message}`)
+      return
+    }
+  }
+
+  // Case 3: Fallback — no active sprint or no active-sprint task for this main_task
+  const { error } = await supabase
+    .from('sprint_tasks')
+    .update({ status: newStatus })
+    .eq('id', sprintTaskId)
+  if (error) throw new Error(`propagateWorkloadStatusToSprintTask (fallback): ${error.message}`)
+}
+
 // ─── Orchestrators ────────────────────────────────────────────────────────────
 
 /**
@@ -311,16 +395,25 @@ export async function onMainTaskStatusChanged(
  * Called from POST /api/workload-entries, PATCH /api/workload-entries/[id],
  * and DELETE /api/workload-entries/[id] after any workload_entry mutation.
  *
- * Any change to a workload_entry (create, update, delete) can affect both
- * the progress weighting (planned_time) and time_spent (actual_time) of the
- * parent main task, so both are recalculated.
+ * Behaviour:
+ *   - If workloadStatus is provided: runs Rule F (propagate status to sprint_task).
+ *   - Always: recalculates progress and time_spent for the parent main task.
  *
- * @param mainTaskId - The parent main task id (resolved by the API route via
- *                     the sprint_task → main_task join before calling this)
+ * @param mainTaskId     - The parent main task id (resolved via sprint_task → main_task join)
+ * @param supabase       - Typed Supabase client
+ * @param sprintTaskId   - (optional) The sprint_task that owns the entry; required for Rule F
+ * @param workloadStatus - (optional) The new workload_entry status; required for Rule F
  */
 export async function onWorkloadEntryChanged(
   mainTaskId: string,
-  supabase: TypedSupabaseClient
+  supabase: TypedSupabaseClient,
+  sprintTaskId?: string,
+  workloadStatus?: WorkloadStatus,
 ): Promise<void> {
+  // Rule F: propagate workload status → sprint_task (active sprint preferred)
+  if (sprintTaskId !== undefined && workloadStatus !== undefined) {
+    await propagateWorkloadStatusToSprintTask(sprintTaskId, workloadStatus, supabase)
+  }
+
   await recalculateAll(mainTaskId, supabase)
 }

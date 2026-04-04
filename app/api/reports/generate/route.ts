@@ -9,7 +9,7 @@ function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** Returns Monday (start) of the week containing `d` */
+/** Returns Monday (start) of the week containing `d` (UTC) */
 function getMondayOf(d: Date): Date {
   const day = d.getUTCDay() // 0=Sun, 1=Mon, …
   const diff = day === 0 ? -6 : 1 - day
@@ -17,6 +17,32 @@ function getMondayOf(d: Date): Date {
   mon.setUTCDate(d.getUTCDate() + diff)
   mon.setUTCHours(0, 0, 0, 0)
   return mon
+}
+
+/**
+ * Determines which week an entry belongs to.
+ * Mirrors original weekStartFromStartDue_():
+ *   - Both present, same week  → use that week's Monday
+ *   - Both present, diff weeks → use DUE date's Monday
+ *   - Only due                 → due's Monday
+ *   - Only start               → start's Monday
+ *   - Neither                  → null (skip entry)
+ */
+function weekStartFromStartDue(
+  startDate: string | null,
+  dueDate: string | null
+): string | null {
+  if (!startDate && !dueDate) return null
+
+  if (startDate && dueDate) {
+    const msMonday = toDateStr(getMondayOf(new Date(startDate + 'T00:00:00Z')))
+    const mdMonday = toDateStr(getMondayOf(new Date(dueDate   + 'T00:00:00Z')))
+    // Same week → either; different weeks → prefer due date's week
+    return msMonday === mdMonday ? msMonday : mdMonday
+  }
+
+  if (dueDate) return toDateStr(getMondayOf(new Date(dueDate   + 'T00:00:00Z')))
+  return             toDateStr(getMondayOf(new Date(startDate! + 'T00:00:00Z')))
 }
 
 /** Generates an array of 12 {weekStart, weekEnd} windows, oldest first */
@@ -41,12 +67,13 @@ type EntryRow = {
   sprint_task_id: string
   planned_time:   number
   actual_time:    number
-  start_date:     string
+  start_date:     string | null
+  due_date:       string | null
 }
 
 function calcLoadCategory(efficiency: number): LoadCategory {
-  if (efficiency < 80)  return 'underloaded'
-  if (efficiency < 90)  return 'underperforming'
+  if (efficiency < 80)   return 'underloaded'
+  if (efficiency < 90)   return 'underperforming'
   if (efficiency <= 110) return 'balanced'
   return 'overloaded'
 }
@@ -58,7 +85,7 @@ function calcWeek(entries: EntryRow[]): {
   load_level:    number
   load_category: LoadCategory
 } {
-  // total_planned = sum of MAX(planned_time) per sprint_task
+  // total_planned = sum of MAX(planned_time) per sprint_task (mirrors buildWorkloadSpMaxMap_)
   const maxByTask = new Map<string, number>()
   for (const e of entries) {
     const cur = maxByTask.get(e.sprint_task_id) ?? 0
@@ -66,7 +93,7 @@ function calcWeek(entries: EntryRow[]): {
   }
   const total_planned = Array.from(maxByTask.values()).reduce((a, b) => a + b, 0)
 
-  // total_actual = raw sum of all actual_time
+  // total_actual = raw sum of all actual_time (mirrors buildWorkloadApSumMap_)
   const total_actual = entries.reduce((sum, e) => sum + e.actual_time, 0)
 
   const efficiency  = total_planned === 0 ? 0
@@ -81,19 +108,24 @@ function calcWeek(entries: EntryRow[]): {
 
 export async function POST() {
   try {
-    const today  = new Date()
-    const weeks  = build12Weeks(today)
-    const oldest = weeks[0].weekStart
+    const today = new Date()
+    const weeks = build12Weeks(today)
+    const oldest = weeks[0].weekStart  // earliest week's Monday (YYYY-MM-DD)
+    const newest = weeks[weeks.length - 1].weekEnd // latest week's Sunday
 
     const supabase = createServerClient()
 
-    // Fetch all relevant entries in the 12-week window (done/halted only)
+    /**
+     * Fetch ALL non-in_progress entries (no date pre-filter).
+     * Week assignment uses weekStartFromStartDue() which may assign an entry to
+     * the due_date's week — so a start_date pre-filter would miss entries where
+     * start_date is null or falls before the window.
+     * Mirrors the original which reads all workload data and filters in JS.
+     */
     const { data: entries, error: fetchError } = await supabase
       .from('workload_entries')
-      .select('sprint_task_id, planned_time, actual_time, start_date')
-      .gte('start_date', oldest)
-      .in('status', ['done', 'halted'])
-      .not('start_date', 'is', null)
+      .select('sprint_task_id, planned_time, actual_time, start_date, due_date')
+      .neq('status', 'in_progress')
 
     if (fetchError) {
       return NextResponse.json({ success: false, error: fetchError.message }, { status: 500 })
@@ -101,13 +133,43 @@ export async function POST() {
 
     const allEntries = (entries ?? []) as EntryRow[]
 
-    // Build upsert rows for each week
-    const upsertRows = weeks.map(({ weekStart, weekEnd }) => {
-      const weekEntries = allEntries.filter(
-        (e) => e.start_date >= weekStart && e.start_date <= weekEnd
-      )
+    /**
+     * Assign each entry to a week using weekStartFromStartDue logic.
+     * Build a map: weekStart (YYYY-MM-DD Monday) → entries for that week.
+     */
+    const weekMap = new Map<string, EntryRow[]>()
+
+    for (const entry of allEntries) {
+      const weekStart = weekStartFromStartDue(entry.start_date, entry.due_date)
+      if (!weekStart) continue                      // neither date set → skip
+      if (weekStart < oldest || weekStart > newest) continue // outside 12-week window → skip
+
+      if (!weekMap.has(weekStart)) weekMap.set(weekStart, [])
+      weekMap.get(weekStart)!.push(entry)
+    }
+
+    /**
+     * Build upsert rows — only for weeks that have data.
+     * Mirrors original: if (!byId || byId.size === 0) continue
+     * Empty weeks are skipped entirely, not inserted as 0-value rows.
+     */
+    const upsertRows: {
+      week_start:    string
+      week_end:      string
+      total_planned: number
+      total_actual:  number
+      efficiency:    number
+      load_level:    number
+      load_category: LoadCategory
+      generated_at:  string
+    }[] = []
+
+    for (const { weekStart, weekEnd } of weeks) {
+      const weekEntries = weekMap.get(weekStart)
+      if (!weekEntries || weekEntries.length === 0) continue // skip empty weeks
+
       const calc = calcWeek(weekEntries)
-      return {
+      upsertRows.push({
         week_start:    weekStart,
         week_end:      weekEnd,
         total_planned: calc.total_planned,
@@ -116,8 +178,17 @@ export async function POST() {
         load_level:    calc.load_level,
         load_category: calc.load_category,
         generated_at:  new Date().toISOString(),
-      }
-    })
+      })
+    }
+
+    if (upsertRows.length === 0) {
+      // No data in any week — return existing rows unchanged
+      const { data: existing } = await supabase
+        .from('workload_reports')
+        .select('*')
+        .order('week_start', { ascending: true })
+      return NextResponse.json({ success: true, data: existing ?? [] })
+    }
 
     const { data: upserted, error: upsertError } = await supabase
       .from('workload_reports')

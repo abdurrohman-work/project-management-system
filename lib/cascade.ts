@@ -93,7 +93,8 @@ export async function promoteMainTaskIfBacklog(
  *
  * Fetches every sprint_task linked to this main_task across ALL sprints.
  * If every row has status 'done', sets the main_task status to 'done'.
- * Called whenever a sprint_task is patched to 'done'.
+ * If NOT all done and the main_task is currently 'done', reverts it to 'in_progress'
+ * (mirrors original: updateMainDoneIfAllSprintTasksDone_ reverts done → in_progress).
  *
  * Guard: a main_task with zero sprint_tasks is never auto-completed.
  */
@@ -113,12 +114,31 @@ export async function completeMainTaskIfAllDone(
   const allDone = sprintTasks.every((t) => t.status === 'done')
 
   if (allDone) {
-    const { error: updateError } = await supabase
+    const { error } = await supabase
       .from('main_tasks')
       .update({ status: 'done' })
       .eq('id', mainTaskId)
+    if (error) throw new Error(`completeMainTaskIfAllDone (set done): ${error.message}`)
+    return
+  }
 
-    if (updateError) throw new Error(`completeMainTaskIfAllDone (update): ${updateError.message}`)
+  // Not all done — if the main task is currently 'done', revert it to 'in_progress'.
+  // This handles the case where a new sprint task is added after the task was completed,
+  // or a done sprint task is re-opened.
+  const { data: mainTask, error: fetchMainError } = await supabase
+    .from('main_tasks')
+    .select('status')
+    .eq('id', mainTaskId)
+    .single()
+
+  if (fetchMainError) throw new Error(`completeMainTaskIfAllDone (fetch main): ${fetchMainError.message}`)
+
+  if (mainTask.status === 'done') {
+    const { error } = await supabase
+      .from('main_tasks')
+      .update({ status: 'in_progress' })
+      .eq('id', mainTaskId)
+    if (error) throw new Error(`completeMainTaskIfAllDone (revert to in_progress): ${error.message}`)
   }
 }
 
@@ -213,7 +233,8 @@ export async function cascadeMainTaskUnblock(
 /**
  * Called from POST /api/sprint-tasks after a new sprint_task is inserted.
  *
- * Applies: Rule B
+ * Applies: Rule B, then recalculates progress + time_spent.
+ * A new sprint task changes the weight denominator, so progress must be recomputed.
  */
 export async function onSprintTaskCreated(
   sprintTaskId: string,
@@ -222,6 +243,7 @@ export async function onSprintTaskCreated(
 ): Promise<void> {
   void sprintTaskId // reserved for future rule extensions
   await promoteMainTaskIfBacklog(mainTaskId, supabase) // Rule B
+  await recalculateAll(mainTaskId, supabase)           // new task shifts weight denominator
 }
 
 /**
@@ -230,7 +252,11 @@ export async function onSprintTaskCreated(
  * Applies in order:
  *   Rule A — if newStatus === 'in_progress'
  *   Rule B — always (any field modification counts)
- *   Rule C — if newStatus === 'done'
+ *   Rule C — always (checks all-done AND reverts done→in_progress if needed)
+ *   recalculateAll — always (status change shifts done-weight in progress bar)
+ *
+ * Original always runs updateMainTimeSpent_ + updateMainProgressBar_ + updateMainDoneIfAllSprintTasksDone_
+ * on every sprint task status change, not just when status === 'done'.
  *
  * @param sprintTaskId - The task that was patched
  * @param newStatus    - The status value from the patch body (undefined if status was not changed)
@@ -246,12 +272,9 @@ export async function onSprintTaskPatched(
     await ensureWorkloadEntry(sprintTaskId, supabase) // Rule A
   }
 
-  await promoteMainTaskIfBacklog(mainTaskId, supabase) // Rule B
-
-  if (newStatus === 'done') {
-    await completeMainTaskIfAllDone(mainTaskId, supabase) // Rule C
-    await recalculateAll(mainTaskId, supabase)            // recalc progress + time_spent
-  }
+  await promoteMainTaskIfBacklog(mainTaskId, supabase)  // Rule B
+  await completeMainTaskIfAllDone(mainTaskId, supabase) // Rule C (also reverts done→in_progress)
+  await recalculateAll(mainTaskId, supabase)            // always recalc — any status change shifts progress
 }
 
 /**

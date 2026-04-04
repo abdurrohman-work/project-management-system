@@ -117,15 +117,10 @@ export async function POST() {
 
     /**
      * Fetch ALL non-in_progress entries (no date pre-filter).
-     * We cannot pre-filter by date because an entry's week is determined by
-     * weekStartFromStartDue(), which may assign it to the due_date's week —
-     * even if start_date is null or before the 12-week window.
+     * Week assignment uses weekStartFromStartDue() which may assign an entry to
+     * the due_date's week — so a start_date pre-filter would miss entries where
+     * start_date is null or falls before the window.
      * Mirrors the original which reads all workload data and filters in JS.
-     *
-     * Bug fixes applied vs previous version:
-     *   ✓ Fetches due_date (was missing)
-     *   ✓ Skips only in_progress (was incorrectly filtering to done+halted only)
-     *   ✓ No start_date pre-filter (was missing due-date-driven entries)
      */
     const { data: entries, error: fetchError } = await supabase
       .from('workload_entries')
@@ -139,8 +134,8 @@ export async function POST() {
     const allEntries = (entries ?? []) as EntryRow[]
 
     /**
-     * Assign each entry to a week using weekStartFromStartDue_ logic.
-     * Build a map: weekStart → entries for that week.
+     * Assign each entry to a week using weekStartFromStartDue logic.
+     * Build a map: weekStart (YYYY-MM-DD Monday) → entries for that week.
      */
     const weekMap = new Map<string, EntryRow[]>()
 

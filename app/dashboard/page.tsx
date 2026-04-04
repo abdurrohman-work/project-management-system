@@ -2,55 +2,79 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { minutesToHours } from '@/lib/time'
 import type { MainTask, MainTaskStatus, TaskPriority, InsertMainTask } from '@/types/database'
+
+// ─── Design tokens ────────────────────────────────────────────────────────────
+
+const C = {
+  bg:       '#18232d',
+  sidebar:  '#111b24',
+  surface:  '#1e2d3d',
+  border:   '#2a3f52',
+  accent:   '#3f9cfb',
+  text:     '#ffffff',
+  muted:    'rgba(255,255,255,0.5)',
+}
+
+// ─── Badge styles ─────────────────────────────────────────────────────────────
+
+const STATUS_BADGE: Record<MainTaskStatus, { bg: string; color: string; label: string }> = {
+  backlog:     { bg: '#374151', color: '#9ca3af', label: 'Backlog'     },
+  in_progress: { bg: '#1e3a5f', color: '#3f9cfb', label: 'In Progress' },
+  blocked:     { bg: '#450a0a', color: '#f87171', label: 'Blocked'     },
+  stopped:     { bg: '#431407', color: '#fb923c', label: 'Stopped'     },
+  done:        { bg: '#052e16', color: '#4ade80', label: 'Done'        },
+}
+
+const PRIORITY_BADGE: Record<TaskPriority, { bg: string; color: string }> = {
+  low:      { bg: '#374151', color: '#9ca3af' },
+  medium:   { bg: '#1e3a5f', color: '#60a5fa' },
+  high:     { bg: '#431407', color: '#fb923c' },
+  critical: { bg: '#450a0a', color: '#f87171' },
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function formatDeadline(dt: string | null): { text: string; muted: boolean } {
+  if (!dt) return { text: '—', muted: true }
+  const d = new Date(dt)
+  const text = d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+  return { text, muted: false }
+}
+
 function formatTime(minutes: number): string {
   if (minutes === 0) return '—'
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  if (h === 0) return `${m}m`
-  if (m === 0) return `${h}h`
-  return `${h}h ${m}m`
-}
-
-const STATUS_STYLES: Record<MainTaskStatus, string> = {
-  backlog:     'bg-gray-100 text-gray-700',
-  in_progress: 'bg-blue-100 text-blue-700',
-  blocked:     'bg-red-100 text-red-700',
-  stopped:     'bg-orange-100 text-orange-700',
-  done:        'bg-green-100 text-green-700',
-}
-
-const STATUS_LABELS: Record<MainTaskStatus, string> = {
-  backlog:     'Backlog',
-  in_progress: 'In Progress',
-  blocked:     'Blocked',
-  stopped:     'Stopped',
-  done:        'Done',
-}
-
-const PRIORITY_STYLES: Record<TaskPriority, string> = {
-  low:      'bg-gray-100 text-gray-600',
-  medium:   'bg-blue-100 text-blue-600',
-  high:     'bg-orange-100 text-orange-700',
-  critical: 'bg-red-100 text-red-700',
+  return minutesToHours(minutes)
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: MainTaskStatus }) {
+  const s = STATUS_BADGE[status]
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[status]}`}>
-      {STATUS_LABELS[status]}
+    <span style={{
+      backgroundColor: s.bg, color: s.color,
+      padding: '2px 8px', borderRadius: 9999,
+      fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap',
+    }}>
+      {s.label}
     </span>
   )
 }
 
 function PriorityBadge({ priority }: { priority: TaskPriority }) {
+  const p = PRIORITY_BADGE[priority]
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${PRIORITY_STYLES[priority]}`}>
+    <span style={{
+      backgroundColor: p.bg, color: p.color,
+      padding: '2px 8px', borderRadius: 9999,
+      fontSize: 11, fontWeight: 500,
+      textTransform: 'capitalize', whiteSpace: 'nowrap',
+    }}>
       {priority}
     </span>
   )
@@ -60,41 +84,23 @@ function ProgressBar({ value }: { value: number }) {
   const pct = Math.min(100, Math.max(0, value))
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200">
-        <div
-          className="h-full rounded-full bg-blue-500 transition-all"
-          style={{ width: `${pct}%` }}
-        />
+      <div style={{ flex: 1, height: 6, backgroundColor: C.border, borderRadius: 9999, overflow: 'hidden' }}>
+        <div style={{ height: 6, width: `${pct}%`, backgroundColor: '#4ade80', borderRadius: 9999 }} />
       </div>
-      <span className="w-8 text-right text-xs tabular-nums text-gray-500">
+      <span style={{ color: C.muted, fontSize: 12, minWidth: 32, textAlign: 'right' }}>
         {pct.toFixed(0)}%
       </span>
     </div>
   )
 }
 
-function MetricCard({
-  label,
-  value,
-  color,
-}: {
-  label: string
-  value: number
-  color: string
-}) {
+function MetricCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className={`mt-1 text-3xl font-semibold tabular-nums ${color}`}>{value}</p>
-    </div>
-  )
-}
-
-function SkeletonCard() {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="h-3 w-20 animate-pulse rounded bg-gray-200" />
-      <div className="mt-2 h-8 w-12 animate-pulse rounded bg-gray-200" />
+    <div style={{ backgroundColor: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
+      <p style={{ color: C.muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+        {label}
+      </p>
+      <p style={{ color, fontSize: 32, fontWeight: 700, lineHeight: 1 }}>{value}</p>
     </div>
   )
 }
@@ -102,12 +108,13 @@ function SkeletonCard() {
 function SkeletonRow() {
   return (
     <tr>
-      {[60, 28, 24, 36, 20, 28].map((w, i) => (
-        <td key={i} className="px-4 py-3">
-          <div
-            className="h-4 animate-pulse rounded bg-gray-200"
-            style={{ width: `${w}%` }}
-          />
+      {[80, 200, 100, 90, 80, 110, 130, 120, 80].map((w, i) => (
+        <td key={i} style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{
+            height: 14, width: w, borderRadius: 4,
+            backgroundColor: C.surface,
+            animation: 'pulse 1.5s ease-in-out infinite',
+          }} />
         </td>
       ))}
     </tr>
@@ -117,14 +124,14 @@ function SkeletonRow() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [tasks, setTasks] = useState<MainTask[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [tasks, setTasks]           = useState<MainTask[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [showForm, setShowForm]     = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [formName, setFormName] = useState('')
+  const [formName, setFormName]     = useState('')
   const [formCategory, setFormCategory] = useState('')
   const [formPriority, setFormPriority] = useState<TaskPriority>('medium')
-  const [formError, setFormError] = useState<string | null>(null)
+  const [formError, setFormError]   = useState<string | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -133,30 +140,24 @@ export default function DashboardPage() {
         .from('main_tasks')
         .select('*')
         .order('created_at', { ascending: false })
-
       if (!error && data) setTasks(data)
       setLoading(false)
     }
     fetchTasks()
   }, [])
 
-  // ── Derived metrics ────────────────────────────────────────────────────────
+  // ── Metrics ────────────────────────────────────────────────────────────────
   const total      = tasks.length
-  const inProgress = tasks.filter((t) => t.status === 'in_progress').length
-  const blocked    = tasks.filter((t) => t.status === 'blocked').length
-  const done       = tasks.filter((t) => t.status === 'done').length
+  const inProgress = tasks.filter(t => t.status === 'in_progress').length
+  const blocked    = tasks.filter(t => t.status === 'blocked').length
+  const done       = tasks.filter(t => t.status === 'done').length
 
-  // ── Create handler ─────────────────────────────────────────────────────────
+  // ── Create ─────────────────────────────────────────────────────────────────
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setFormError(null)
-
     const name = formName.trim()
-    if (!name) {
-      setFormError('Name is required.')
-      return
-    }
-
+    if (!name) { setFormError('Name is required.'); return }
     setSubmitting(true)
 
     const payload: InsertMainTask = {
@@ -173,103 +174,100 @@ export default function DashboardPage() {
       .single()
 
     setSubmitting(false)
-
-    if (error) {
-      setFormError(error.message)
-      return
-    }
-
-    if (data) setTasks((prev) => [data, ...prev])
-
-    setFormName('')
-    setFormCategory('')
-    setFormPriority('medium')
-    setShowForm(false)
+    if (error) { setFormError(error.message); return }
+    if (data) setTasks(prev => [data, ...prev])
+    setFormName(''); setFormCategory(''); setFormPriority('medium'); setShowForm(false)
   }
 
-  function handleCancel() {
-    setFormName('')
-    setFormCategory('')
-    setFormPriority('medium')
-    setFormError(null)
-    setShowForm(false)
+  // ── Input styles ───────────────────────────────────────────────────────────
+  const inputStyle: React.CSSProperties = {
+    backgroundColor: C.bg,
+    border: `1px solid ${C.border}`,
+    borderRadius: 6,
+    color: C.text,
+    padding: '6px 10px',
+    fontSize: 13,
+    outline: 'none',
+    width: '100%',
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8">
+    <div style={{ backgroundColor: C.bg, minHeight: '100vh', padding: '24px 24px' }}>
 
-      {/* ── Header ── */}
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+      {/* ── Top bar ── */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 style={{ color: C.text, fontSize: 20, fontWeight: 600 }}>Dashboard</h1>
         <button
-          onClick={() => { setShowForm((v) => !v); setFormError(null) }}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          onClick={() => { setShowForm(v => !v); setFormError(null) }}
+          style={{
+            backgroundColor: C.accent, color: '#fff',
+            border: 'none', borderRadius: 6,
+            padding: '8px 16px', fontSize: 13, fontWeight: 500,
+            cursor: 'pointer',
+          }}
         >
-          New Task
+          + New Task
         </button>
       </div>
 
       {/* ── Metric cards ── */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} style={{ backgroundColor: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, height: 80 }} />
+          ))
         ) : (
           <>
-            <MetricCard label="Total Tasks"  value={total}      color="text-gray-900"  />
-            <MetricCard label="In Progress"  value={inProgress} color="text-blue-600"  />
-            <MetricCard label="Blocked"      value={blocked}    color="text-red-600"   />
-            <MetricCard label="Done"         value={done}       color="text-green-600" />
+            <MetricCard label="Total Tasks"  value={total}      color={C.text}    />
+            <MetricCard label="In Progress"  value={inProgress} color={C.accent}  />
+            <MetricCard label="Blocked"      value={blocked}    color="#f87171"   />
+            <MetricCard label="Done"         value={done}       color="#4ade80"   />
           </>
         )}
       </div>
 
-      {/* ── Inline create form ── */}
+      {/* ── Create form ── */}
       {showForm && (
         <form
           onSubmit={handleCreate}
-          className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+          style={{
+            backgroundColor: C.surface,
+            border: `1px solid ${C.border}`,
+            borderRadius: 8, padding: 16, marginBottom: 16,
+          }}
         >
-          <h2 className="mb-4 text-sm font-semibold text-gray-700">New Task</h2>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            {/* Name */}
-            <div className="flex-1">
-              <label className="mb-1 block text-xs font-medium text-gray-600">
-                Name <span className="text-red-500">*</span>
+          <p style={{ color: C.text, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>New Task</p>
+          <div className="flex flex-col sm:flex-row gap-3 items-end">
+            <div style={{ flex: 1 }}>
+              <label style={{ display: 'block', color: C.muted, fontSize: 11, marginBottom: 4 }}>
+                Name <span style={{ color: '#f87171' }}>*</span>
               </label>
               <input
                 type="text"
                 value={formName}
-                onChange={(e) => setFormName(e.target.value)}
+                onChange={e => setFormName(e.target.value)}
                 placeholder="Task name"
                 autoFocus
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                style={inputStyle}
               />
             </div>
-
-            {/* Category */}
-            <div className="sm:w-40">
-              <label className="mb-1 block text-xs font-medium text-gray-600">
-                Category
-              </label>
+            <div style={{ width: 140 }}>
+              <label style={{ display: 'block', color: C.muted, fontSize: 11, marginBottom: 4 }}>Category</label>
               <input
                 type="text"
                 value={formCategory}
-                onChange={(e) => setFormCategory(e.target.value)}
+                onChange={e => setFormCategory(e.target.value)}
                 placeholder="e.g. Frontend"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                style={inputStyle}
               />
             </div>
-
-            {/* Priority */}
-            <div className="sm:w-36">
-              <label className="mb-1 block text-xs font-medium text-gray-600">
-                Priority
-              </label>
+            <div style={{ width: 130 }}>
+              <label style={{ display: 'block', color: C.muted, fontSize: 11, marginBottom: 4 }}>Priority</label>
               <select
                 value={formPriority}
-                onChange={(e) => setFormPriority(e.target.value as TaskPriority)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                onChange={e => setFormPriority(e.target.value as TaskPriority)}
+                style={inputStyle}
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -277,89 +275,163 @@ export default function DashboardPage() {
                 <option value="critical">Critical</option>
               </select>
             </div>
-
-            {/* Actions */}
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={submitting}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                style={{
+                  backgroundColor: C.accent, color: '#fff',
+                  border: 'none', borderRadius: 6,
+                  padding: '7px 16px', fontSize: 13, fontWeight: 500,
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  opacity: submitting ? 0.6 : 1,
+                }}
               >
                 {submitting ? 'Saving…' : 'Save'}
               </button>
               <button
                 type="button"
-                onClick={handleCancel}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-1"
+                onClick={() => { setShowForm(false); setFormError(null) }}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6, color: C.muted,
+                  padding: '7px 16px', fontSize: 13, cursor: 'pointer',
+                }}
               >
                 Cancel
               </button>
             </div>
           </div>
-
           {formError && (
-            <p className="mt-2 text-xs text-red-600">{formError}</p>
+            <p style={{ color: '#f87171', fontSize: 12, marginTop: 8 }}>{formError}</p>
           )}
         </form>
       )}
 
-      {/* ── Tasks table ── */}
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-[680px] w-full divide-y divide-gray-200">
+      {/* ── Table ── */}
+      <div style={{
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        overflow: 'hidden',
+      }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
+
+            {/* Header */}
             <thead>
-              <tr className="bg-gray-50">
-                {['Name', 'Status', 'Priority', 'Progress', 'Time Spent', 'Category'].map((col) => (
+              <tr style={{ backgroundColor: C.sidebar }}>
+                {[
+                  { label: 'ID',         width: 80  },
+                  { label: 'Task',       width: 'auto' },
+                  { label: 'Category',   width: 120 },
+                  { label: 'Status',     width: 110 },
+                  { label: 'Priority',   width: 90  },
+                  { label: 'Deadline',   width: 150 },
+                  { label: 'Task Owner', width: 160 },
+                  { label: 'Progress',   width: 160 },
+                  { label: 'Time Spent', width: 100 },
+                ].map(col => (
                   <th
-                    key={col}
-                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500"
+                    key={col.label}
+                    style={{
+                      padding: '10px 16px',
+                      textAlign: 'left',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      color: C.muted,
+                      whiteSpace: 'nowrap',
+                      width: col.width === 'auto' ? undefined : col.width,
+                    }}
                   >
-                    {col}
+                    {col.label}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+
+            {/* Body */}
+            <tbody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
               ) : tasks.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-16 text-center">
-                    <p className="text-sm font-medium text-gray-500">No tasks yet</p>
-                    <p className="mt-1 text-xs text-gray-400">
-                      Click &ldquo;New Task&rdquo; to create your first epic.
-                    </p>
+                  <td
+                    colSpan={9}
+                    style={{
+                      padding: '60px 24px',
+                      textAlign: 'center',
+                      color: C.muted,
+                      backgroundColor: C.bg,
+                    }}
+                  >
+                    <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>No tasks yet</p>
+                    <p style={{ fontSize: 12 }}>Click &ldquo;+ New Task&rdquo; to create your first epic.</p>
                   </td>
                 </tr>
               ) : (
-                tasks.map((task) => (
-                  <tr key={task.id} className="hover:bg-gray-50">
-                    <td className="max-w-[260px] truncate px-4 py-3 text-sm font-medium text-gray-900">
-                      {task.name}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={task.status} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <PriorityBadge priority={task.priority} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <ProgressBar value={task.progress} />
-                    </td>
-                    <td className="px-4 py-3 text-sm tabular-nums text-gray-600">
-                      {formatTime(task.time_spent)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {task.category ?? <span className="text-gray-300">—</span>}
-                    </td>
-                  </tr>
-                ))
+                tasks.map(task => {
+                  const deadline = formatDeadline(task.deadline)
+                  return (
+                    <tr
+                      key={task.id}
+                      style={{ backgroundColor: C.bg, borderBottom: `1px solid ${C.border}`, cursor: 'default' }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.surface)}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.bg)}
+                    >
+                      {/* ID */}
+                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: C.accent, fontFamily: 'monospace', fontSize: 12 }}>
+                          {task.display_id}
+                        </span>
+                      </td>
+                      {/* Task */}
+                      <td style={{ padding: '12px 16px', color: C.text, fontSize: 13, fontWeight: 500, maxWidth: 280 }}>
+                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {task.name}
+                        </span>
+                      </td>
+                      {/* Category */}
+                      <td style={{ padding: '12px 16px', fontSize: 13, color: task.category ? C.text : C.muted, whiteSpace: 'nowrap' }}>
+                        {task.category ?? '—'}
+                      </td>
+                      {/* Status */}
+                      <td style={{ padding: '12px 16px' }}>
+                        <StatusBadge status={task.status} />
+                      </td>
+                      {/* Priority */}
+                      <td style={{ padding: '12px 16px' }}>
+                        <PriorityBadge priority={task.priority} />
+                      </td>
+                      {/* Deadline */}
+                      <td style={{ padding: '12px 16px', fontSize: 12, color: deadline.muted ? C.muted : C.text, whiteSpace: 'nowrap' }}>
+                        {deadline.text}
+                      </td>
+                      {/* Task Owner */}
+                      <td style={{ padding: '12px 16px', fontSize: 12, color: task.task_owner ? C.text : C.muted, whiteSpace: 'nowrap', maxWidth: 160 }}>
+                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {task.task_owner ?? '—'}
+                        </span>
+                      </td>
+                      {/* Progress */}
+                      <td style={{ padding: '12px 16px', minWidth: 140 }}>
+                        <ProgressBar value={task.progress} />
+                      </td>
+                      {/* Time Spent */}
+                      <td style={{ padding: '12px 16px', fontSize: 12, color: task.time_spent ? C.text : C.muted, whiteSpace: 'nowrap' }}>
+                        {formatTime(task.time_spent)}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-    </main>
+    </div>
   )
 }

@@ -16,7 +16,7 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
 
-    const { status, priority, name } = body
+    const { status, priority, name, blocked_by, link, note } = body
 
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
       return NextResponse.json(
@@ -37,9 +37,12 @@ export async function PATCH(
     }
 
     const patch: Record<string, unknown> = {}
-    if (status !== undefined) patch.status = status
-    if (priority !== undefined) patch.priority = priority
-    if (name !== undefined) patch.name = name.trim()
+    if (status !== undefined)    patch.status     = status
+    if (priority !== undefined)  patch.priority   = priority
+    if (name !== undefined)      patch.name       = name.trim()
+    if ('blocked_by' in body)    patch.blocked_by = blocked_by ?? null
+    if ('link'       in body)    patch.link       = link       ?? null
+    if ('note'       in body)    patch.note       = note       ?? null
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ success: false, error: 'No valid fields to update' }, { status: 400 })
@@ -59,13 +62,16 @@ export async function PATCH(
     }
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 })
 
-    // Run cascade side-effects (non-blocking — errors logged, not surfaced)
-    if (status !== undefined) {
-      try {
-        await onSprintTaskPatched(data.id, status as SprintTaskStatus, data.main_task_id, supabase)
-      } catch (cascadeErr) {
-        console.error('Cascade error after sprint_task PATCH:', cascadeErr)
-      }
+    // Always run cascade side-effects after any patch
+    try {
+      await onSprintTaskPatched(
+        data.id,
+        status !== undefined ? (status as SprintTaskStatus) : undefined,
+        data.main_task_id,
+        supabase
+      )
+    } catch (cascadeErr) {
+      console.error('Cascade error after sprint_task PATCH:', cascadeErr)
     }
 
     return NextResponse.json({ success: true, data })

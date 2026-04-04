@@ -51,42 +51,54 @@ export type Database = {
       }
       main_tasks: {
         Row: {
+          blocked_by: string | null
           category: string | null
           created_at: string
           deadline: string | null
           display_id: string
           id: string
+          link: string | null
           mt_number: number
           name: string
+          note: string | null
           priority: Database["public"]["Enums"]["task_priority"]
           progress: number
           status: Database["public"]["Enums"]["main_task_status"]
+          taken_at: string | null
           task_owner: string | null
           time_spent: number
           updated_at: string
         }
         Insert: {
+          blocked_by?: string | null
           category?: string | null
           created_at?: string
           deadline?: string | null
           id?: string
+          link?: string | null
           name: string
+          note?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           progress?: number
           status?: Database["public"]["Enums"]["main_task_status"]
+          taken_at?: string | null
           task_owner?: string | null
           time_spent?: number
           updated_at?: string
         }
         Update: {
+          blocked_by?: string | null
           category?: string | null
           created_at?: string
           deadline?: string | null
           id?: string
+          link?: string | null
           name?: string
+          note?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           progress?: number
           status?: Database["public"]["Enums"]["main_task_status"]
+          taken_at?: string | null
           task_owner?: string | null
           time_spent?: number
           updated_at?: string
@@ -95,11 +107,14 @@ export type Database = {
       }
       sprint_tasks: {
         Row: {
+          blocked_by: string | null
           created_at: string
           display_id: string
           id: string
+          link: string | null
           main_task_id: string
           name: string
+          note: string | null
           priority: Database["public"]["Enums"]["task_priority"]
           rolled_over_from: string | null
           sprint_id: string
@@ -108,10 +123,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          blocked_by?: string | null
           created_at?: string
           id?: string
+          link?: string | null
           main_task_id: string
           name: string
+          note?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           rolled_over_from?: string | null
           sprint_id: string
@@ -119,10 +137,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          blocked_by?: string | null
           created_at?: string
           id?: string
+          link?: string | null
           main_task_id?: string
           name?: string
+          note?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           rolled_over_from?: string | null
           sprint_id?: string

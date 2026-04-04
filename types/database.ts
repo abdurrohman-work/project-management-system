@@ -53,33 +53,41 @@ export type Database = {
         Row: {
           category: string | null
           created_at: string
+          deadline: string | null
+          display_id: string
           id: string
+          mt_number: number
           name: string
           priority: Database["public"]["Enums"]["task_priority"]
           progress: number
           status: Database["public"]["Enums"]["main_task_status"]
+          task_owner: string | null
           time_spent: number
           updated_at: string
         }
         Insert: {
           category?: string | null
           created_at?: string
+          deadline?: string | null
           id?: string
           name: string
           priority?: Database["public"]["Enums"]["task_priority"]
           progress?: number
           status?: Database["public"]["Enums"]["main_task_status"]
+          task_owner?: string | null
           time_spent?: number
           updated_at?: string
         }
         Update: {
           category?: string | null
           created_at?: string
+          deadline?: string | null
           id?: string
           name?: string
           priority?: Database["public"]["Enums"]["task_priority"]
           progress?: number
           status?: Database["public"]["Enums"]["main_task_status"]
+          task_owner?: string | null
           time_spent?: number
           updated_at?: string
         }
@@ -88,12 +96,14 @@ export type Database = {
       sprint_tasks: {
         Row: {
           created_at: string
+          display_id: string
           id: string
           main_task_id: string
           name: string
           priority: Database["public"]["Enums"]["task_priority"]
           rolled_over_from: string | null
           sprint_id: string
+          st_number: number
           status: Database["public"]["Enums"]["sprint_task_status"]
           updated_at: string
         }

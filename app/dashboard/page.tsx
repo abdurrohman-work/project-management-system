@@ -132,6 +132,7 @@ export default function DashboardPage() {
   const [formCategory, setFormCategory] = useState('')
   const [formPriority, setFormPriority] = useState<TaskPriority>('medium')
   const [formError, setFormError]       = useState<string | null>(null)
+  const [deletingId, setDeletingId]     = useState<string | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -151,6 +152,16 @@ export default function DashboardPage() {
   const inProgress = tasks.filter(t => t.status === 'in_progress').length
   const blocked    = tasks.filter(t => t.status === 'blocked').length
   const done       = tasks.filter(t => t.status === 'done').length
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
+  async function handleDelete(id: string, name: string) {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return
+    setDeletingId(id)
+    const res = await fetch(`/api/main-tasks/${id}`, { method: 'DELETE' })
+    const json = await res.json()
+    setDeletingId(null)
+    if (json.success) setTasks(prev => prev.filter(t => t.id !== id))
+  }
 
   // ── Create ─────────────────────────────────────────────────────────────────
   async function handleCreate(e: React.FormEvent) {
@@ -334,6 +345,7 @@ export default function DashboardPage() {
                   { label: 'Time Spent', width: 95  },
                   { label: 'Blocked By', width: 130 },
                   { label: 'Note',       width: 160 },
+                  { label: '',           width: 48  },
                 ].map(col => (
                   <th
                     key={col.label}
@@ -362,7 +374,7 @@ export default function DashboardPage() {
               ) : tasks.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={13}
                     style={{
                       padding: '60px 24px',
                       textAlign: 'center',
@@ -442,6 +454,33 @@ export default function DashboardPage() {
                         <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {task.note ?? '—'}
                         </span>
+                      </td>
+                      {/* Delete */}
+                      <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                        <button
+                          onClick={() => handleDelete(task.id, task.name)}
+                          disabled={deletingId === task.id}
+                          title="Delete task"
+                          style={{
+                            background: 'none', border: 'none',
+                            cursor: deletingId === task.id ? 'not-allowed' : 'pointer',
+                            padding: 4, borderRadius: 4,
+                            color: deletingId === task.id ? C.muted : '#f87171',
+                            opacity: deletingId === task.id ? 0.4 : 0.6,
+                            lineHeight: 1,
+                            transition: 'opacity 0.15s',
+                          }}
+                          onMouseEnter={e => { if (deletingId !== task.id) (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
+                          onMouseLeave={e => { if (deletingId !== task.id) (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                          </svg>
+                        </button>
                       </td>
                     </tr>
                   )

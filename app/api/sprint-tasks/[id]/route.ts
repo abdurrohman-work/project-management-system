@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
-import { onSprintTaskPatched } from '@/lib/cascade'
+import { onSprintTaskPatched, completeMainTaskIfAllDone } from '@/lib/cascade'
+import { recalculateAll } from '@/lib/calculations'
 import type { SprintTaskStatus, TaskPriority } from '@/types/database'
 
 const VALID_STATUSES: SprintTaskStatus[] = [
@@ -75,6 +76,47 @@ export async function PATCH(
     }
 
     return NextResponse.json({ success: true, data })
+  } catch {
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const supabase = createServerClient()
+
+    // Fetch main_task_id before deleting (needed for cascade recalculation)
+    const { data: task, error: fetchError } = await supabase
+      .from('sprint_tasks')
+      .select('main_task_id')
+      .eq('id', id)
+      .single()
+
+    if (fetchError?.code === 'PGRST116') {
+      return NextResponse.json({ success: false, error: 'Sprint task not found' }, { status: 404 })
+    }
+    if (fetchError) return NextResponse.json({ success: false, error: fetchError.message }, { status: 500 })
+
+    const { error } = await supabase
+      .from('sprint_tasks')
+      .delete()
+      .eq('id', id)
+
+    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+
+    // Cascade: check done state + recalculate progress/time_spent
+    try {
+      await completeMainTaskIfAllDone(task.main_task_id, supabase)
+      await recalculateAll(task.main_task_id, supabase)
+    } catch (cascadeErr) {
+      console.error('Cascade error after sprint_task DELETE:', cascadeErr)
+    }
+
+    return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 })
   }

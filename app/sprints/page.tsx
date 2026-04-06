@@ -69,6 +69,7 @@ const ST_COLS = [
   { label: 'Blocked By',width: 130  },
   { label: 'Link',      width: 110  },
   { label: 'Note',      width: 200  },
+  { label: '',          width: 44   }, // delete
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -96,6 +97,7 @@ export default function SprintsPage() {
   const [addName,      setAddName]      = useState('')
   const [addPriority,  setAddPriority]  = useState<TaskPriority>('medium')
   const [addLoading,   setAddLoading]   = useState(false)
+  const [deletingStId, setDeletingStId] = useState<string | null>(null)
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -143,6 +145,22 @@ export default function SprintsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     })
+  }
+
+  // ── Delete sprint task ────────────────────────────────────────────────────
+  async function handleDeleteSprintTask(taskId: string, taskName: string, mainTaskId: string) {
+    if (!window.confirm(`Delete subtask "${taskName}"? This cannot be undone.`)) return
+    setDeletingStId(taskId)
+    const res = await fetch(`/api/sprint-tasks/${taskId}`, { method: 'DELETE' })
+    const json = await res.json()
+    setDeletingStId(null)
+    if (json.success) {
+      setGroups(prev => prev.map(g =>
+        g.mainTask.id === mainTaskId
+          ? { ...g, sprintTasks: g.sprintTasks.filter(t => t.id !== taskId) }
+          : g
+      ))
+    }
   }
 
   // ── Add subtask ───────────────────────────────────────────────────────────
@@ -450,6 +468,33 @@ export default function SprintsPage() {
                               <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {task.note ?? '—'}
                               </span>
+                            </td>
+                            {/* Delete */}
+                            <td style={{ ...tdBase, textAlign: 'center', padding: '9px 6px' }}>
+                              <button
+                                onClick={() => handleDeleteSprintTask(task.id, task.name, mainTask.id)}
+                                disabled={deletingStId === task.id}
+                                title="Delete subtask"
+                                style={{
+                                  background: 'none', border: 'none',
+                                  cursor: deletingStId === task.id ? 'not-allowed' : 'pointer',
+                                  padding: 4, borderRadius: 4,
+                                  color: deletingStId === task.id ? C.muted : '#f87171',
+                                  opacity: deletingStId === task.id ? 0.4 : 0.6,
+                                  lineHeight: 1,
+                                  transition: 'opacity 0.15s',
+                                }}
+                                onMouseEnter={e => { if (deletingStId !== task.id) (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
+                                onMouseLeave={e => { if (deletingStId !== task.id) (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                  stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                  <path d="M10 11v6M14 11v6" />
+                                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                                </svg>
+                              </button>
                             </td>
                           </tr>
 

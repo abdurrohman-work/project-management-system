@@ -2,49 +2,154 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import {
+  LayoutDashboard,
+  Zap,
+  Clock,
+  BarChart2,
+} from 'lucide-react'
 
 const NAV_LINKS = [
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Sprint',    href: '/sprints'   },
-  { label: 'Workload',  href: '/workload'  },
-  { label: 'Report',    href: '/report'    },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Sprint',    href: '/sprints',   icon: Zap             },
+  { label: 'Workload',  href: '/workload',  icon: Clock           },
+  { label: 'Report',    href: '/report',    icon: BarChart2       },
 ]
+
+const C = {
+  sidebar:  '#1E2028',
+  border:   '#363940',
+  primary:  '#7B68EE',
+  text:     '#E2E4E9',
+  secondary:'#9BA0AB',
+  muted:    '#6B7280',
+}
 
 export default function Sidebar() {
   const pathname = usePathname()
 
   return (
     <aside
-      style={{ width: 240, backgroundColor: '#111b24' }}
-      className="fixed inset-y-0 left-0 flex flex-col"
+      style={{
+        width: 250,
+        backgroundColor: C.sidebar,
+        borderRight: `1px solid ${C.border}`,
+        position: 'fixed',
+        inset: '0 auto 0 0',
+        display: 'flex',
+        flexDirection: 'column',
+        zIndex: 40,
+      }}
     >
-      {/* Logo */}
-      <div className="px-6 py-6">
-        <span className="text-lg font-bold text-white tracking-tight">
-          Mohir.dev
-        </span>
+      {/* Workspace header */}
+      <div
+        style={{
+          padding: '16px 20px',
+          borderBottom: `1px solid ${C.border}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          height: 56,
+        }}
+      >
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            backgroundColor: C.primary,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 13,
+            fontWeight: 700,
+            color: '#fff',
+            flexShrink: 0,
+          }}
+        >
+          M
+        </div>
+        <div>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.2 }}>
+            Mohir.dev
+          </p>
+          <p style={{ margin: 0, fontSize: 11, color: C.muted, lineHeight: 1.2 }}>
+            Workspace
+          </p>
+        </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 flex flex-col gap-0.5 px-3">
-        {NAV_LINKS.map(({ label, href }) => {
-          const isActive = pathname === href || pathname.startsWith(href + '/')
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={[
-                'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
-                isActive
-                  ? 'border-l-[3px] border-[#3f9cfb] bg-[#1e2d3d] text-white rounded-l-none pl-[9px]'
-                  : 'text-[rgba(255,255,255,0.6)] hover:bg-[#1e2d3d] hover:text-white border-l-[3px] border-transparent rounded-l-none pl-[9px]',
-              ].join(' ')}
-            >
-              {label}
-            </Link>
-          )
-        })}
-      </nav>
+      {/* Nav section */}
+      <div style={{ padding: '12px 8px', flex: 1 }}>
+        <p
+          style={{
+            margin: '0 0 6px',
+            padding: '0 8px',
+            fontSize: 11,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: C.muted,
+          }}
+        >
+          Navigation
+        </p>
+
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {NAV_LINKS.map(({ label, href, icon: Icon }) => {
+            const isActive = pathname === href || pathname.startsWith(href + '/')
+            return (
+              <Link
+                key={href}
+                href={href}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '7px 10px',
+                  borderRadius: 6,
+                  textDecoration: 'none',
+                  fontSize: 13,
+                  fontWeight: isActive ? 500 : 400,
+                  color: isActive ? '#fff' : C.secondary,
+                  backgroundColor: isActive ? 'rgba(123,104,238,0.14)' : 'transparent',
+                  transition: 'background-color 0.12s, color 0.12s',
+                }}
+                onMouseEnter={e => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'rgba(255,255,255,0.05)'
+                    ;(e.currentTarget as HTMLAnchorElement).style.color = C.text
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'transparent'
+                    ;(e.currentTarget as HTMLAnchorElement).style.color = C.secondary
+                  }
+                }}
+              >
+                <Icon
+                  size={16}
+                  style={{ flexShrink: 0, color: isActive ? C.primary : 'currentColor' }}
+                />
+                {label}
+              </Link>
+            )
+          })}
+        </nav>
+      </div>
+
+      {/* Footer */}
+      <div
+        style={{
+          padding: '12px 16px',
+          borderTop: `1px solid ${C.border}`,
+          fontSize: 11,
+          color: C.muted,
+        }}
+      >
+        Project Management v1
+      </div>
     </aside>
   )
 }

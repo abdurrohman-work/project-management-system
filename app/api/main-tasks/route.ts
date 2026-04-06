@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, category, priority } = body
+    const { name, category, priority, taken_at, deadline, task_owner, note, blocked_by } = body
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
       return NextResponse.json({ success: false, error: 'name is required' }, { status: 400 })
@@ -40,7 +40,16 @@ export async function POST(request: NextRequest) {
     const supabase = createServerClient()
     const { data, error } = await supabase
       .from('main_tasks')
-      .insert({ name: name.trim(), category: category ?? null, priority: priority ?? 'medium' })
+      .insert({
+        name:       name.trim(),
+        category:   category   ?? null,
+        priority:   priority   ?? 'medium',
+        taken_at:   taken_at   ?? null,
+        deadline:   deadline   ?? null,
+        task_owner: task_owner ?? null,
+        note:       note       ?? null,
+        blocked_by: blocked_by ?? null,
+      })
       .select()
       .single()
 

@@ -45,7 +45,7 @@ export async function PATCH(
       )
     }
 
-    const { name, status, category, priority, taken_at, blocked_by, link, note } = body
+    const { name, status, category, priority, taken_at, blocked_by, link, note, deadline, task_owner } = body
 
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
       return NextResponse.json(
@@ -70,10 +70,12 @@ export async function PATCH(
     if (status !== undefined)     patch.status     = status
     if ('category'  in body)      patch.category   = category  ?? null
     if (priority !== undefined)   patch.priority   = priority
-    if ('taken_at'  in body)      patch.taken_at   = taken_at  ?? null
-    if ('blocked_by' in body)     patch.blocked_by = blocked_by ?? null
-    if ('link'      in body)      patch.link       = link      ?? null
-    if ('note'      in body)      patch.note       = note      ?? null
+    if ('taken_at'   in body)     patch.taken_at   = taken_at    ?? null
+    if ('blocked_by' in body)     patch.blocked_by = blocked_by  ?? null
+    if ('link'       in body)     patch.link       = link        ?? null
+    if ('note'       in body)     patch.note       = note        ?? null
+    if ('deadline'   in body)     patch.deadline   = deadline    ?? null
+    if ('task_owner' in body)     patch.task_owner = task_owner  ?? null
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ success: false, error: 'No valid fields to update' }, { status: 400 })

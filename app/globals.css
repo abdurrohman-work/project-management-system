@@ -43,3 +43,63 @@ select {
   appearance: none;
   -webkit-appearance: none;
 }
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
+
+@keyframes slideInRight {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes fadeInScale {
+  from { transform: scale(0.96); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+@keyframes rowFlash {
+  0%   { background-color: rgba(123, 104, 238, 0.22); }
+  100% { background-color: transparent; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #2A2D35 25%, #31353F 50%, #2A2D35 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+.modal-enter {
+  animation: fadeInScale 0.18s ease-out;
+}
+
+.row-flash {
+  animation: rowFlash 1.2s ease-out forwards;
+}
+
+/* Editable cell hover hint */
+.editable-cell {
+  position: relative;
+  cursor: text;
+}
+.editable-cell:hover {
+  background-color: rgba(123, 104, 238, 0.06);
+  border-radius: 4px;
+}
+.editable-cell .edit-hint {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.editable-cell:hover .edit-hint {
+  opacity: 1;
+}
+
+/* Focus ring for inputs */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #7B68EE !important;
+  box-shadow: 0 0 0 3px rgba(123, 104, 238, 0.18) !important;
+}

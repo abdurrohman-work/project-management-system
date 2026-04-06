@@ -230,9 +230,9 @@ export default function SprintsPage() {
           padding: '48px 24px',
           textAlign: 'center',
         }}>
-          <p style={{ color: C.muted, fontSize: 14, margin: 0 }}>No sprint tasks yet.</p>
+          <p style={{ color: C.muted, fontSize: 14, margin: 0 }}>No tasks yet.</p>
           <p style={{ color: C.muted, fontSize: 12, margin: '4px 0 0' }}>
-            Add sprint tasks from the Dashboard.
+            Create a task in the Dashboard first, then add subtasks here.
           </p>
         </div>
       )}

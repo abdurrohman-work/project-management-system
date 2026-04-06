@@ -660,7 +660,7 @@ export default function DashboardPage() {
                         fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
                         letterSpacing: '0.06em', color: col.editable ? C.secondary : C.muted,
                         whiteSpace: 'nowrap', borderBottom: `1px solid ${C.border}`,
-                        position: 'sticky', top: 56, zIndex: 10, backgroundColor: C.sidebar,
+                        backgroundColor: C.sidebar,
                       }}
                     >
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>

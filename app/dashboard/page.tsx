@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  Plus, X, Flag, Trash2, ChevronDown, Search,
+  Plus, X, Flag, Trash2, ChevronDown, ChevronUp, Search,
   LayoutDashboard, Pencil, SlidersHorizontal,
 } from 'lucide-react'
 import { minutesToHours } from '@/lib/time'
@@ -128,17 +128,41 @@ function PriorityFlag({ priority }: { priority: TaskPriority }) {
 }
 
 function ProgressBar({ value }: { value: number }) {
-  const pct   = Math.min(100, Math.max(0, value))
-  const color = pct >= 100 ? '#4ADE80' : pct >= 50 ? '#60A5FA' : '#F59E0B'
+  const pct = Math.min(100, Math.max(0, value))
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ flex: 1, height: 4, backgroundColor: C.border, borderRadius: 9999, overflow: 'hidden' }}>
-        <div style={{ height: 4, width: `${pct}%`, backgroundColor: color, borderRadius: 9999, transition: 'width 0.4s ease' }} />
+      <div style={{ flex: 1, height: 6, backgroundColor: '#2a3f52', borderRadius: 9999, overflow: 'hidden' }}>
+        <div style={{ height: 6, width: `${pct}%`, backgroundColor: '#4ADE80', borderRadius: 9999, transition: 'width 0.4s ease' }} />
       </div>
       <span style={{ color: C.secondary, fontSize: 11, minWidth: 30, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         {pct.toFixed(0)}%
       </span>
     </div>
+  )
+}
+
+function OwnerAvatar({ value }: { value: string | null }) {
+  if (!value) return <span style={{ color: C.muted, fontSize: 12 }}>—</span>
+  const parts    = value.split('@')[0].replace(/[._-]/g, ' ').split(' ')
+  const initials = parts.slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('')
+  const hue      = [...value].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % 360
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{
+        width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+        backgroundColor: `hsl(${hue},45%,35%)`,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 10, fontWeight: 600, color: '#fff',
+      }}>
+        {initials}
+      </span>
+      <span
+        style={{ fontSize: 12, color: C.secondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}
+        title={value}
+      >
+        {value.split('@')[0]}
+      </span>
+    </span>
   )
 }
 
@@ -224,6 +248,17 @@ export default function DashboardPage() {
   const [filterStatus,   setFilterStatus]   = useState<MainTaskStatus | ''>('')
   const [filterPriority, setFilterPriority] = useState<TaskPriority | ''>('')
 
+  // ── Sort ─────────────────────────────────────────────────────────────────
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  // ── Column visibility ─────────────────────────────────────────────────────
+  const [visibleCols, setVisibleCols] = useState<Set<string>>(
+    () => new Set(COLUMNS.map(c => c.key)),
+  )
+  const [showColMenu, setShowColMenu] = useState(false)
+  const colMenuRef = useRef<HTMLDivElement>(null)
+
   // ── Toast ────────────────────────────────────────────────────────────────
   const { toasts, toast, dismiss } = useToast()
 
@@ -235,6 +270,18 @@ export default function DashboardPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  // ── Close col menu on outside click ──────────────────────────────────────
+  useEffect(() => {
+    if (!showColMenu) return
+    function handler(e: MouseEvent) {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
+        setShowColMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showColMenu])
+
   // ── Derived: filtered tasks ───────────────────────────────────────────────
   const filteredTasks = tasks.filter(t => {
     if (filterText   && !t.name.toLowerCase().includes(filterText.toLowerCase())) return false
@@ -242,6 +289,15 @@ export default function DashboardPage() {
     if (filterPriority && t.priority !== filterPriority) return false
     return true
   })
+
+  const sortedTasks = sortKey
+    ? [...filteredTasks].sort((a, b) => {
+        const av = (a as Record<string, unknown>)[sortKey] ?? ''
+        const bv = (b as Record<string, unknown>)[sortKey] ?? ''
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    : filteredTasks
 
   const hasFilters = !!(filterText || filterStatus || filterPriority)
 
@@ -520,6 +576,60 @@ export default function DashboardPage() {
             </button>
           )}
 
+          {/* Show / hide columns */}
+          <div ref={colMenuRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowColMenu(v => !v)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                backgroundColor: showColMenu ? 'rgba(123,104,238,0.12)' : C.surface,
+                border: `1px solid ${showColMenu ? C.primary : C.border}`,
+                borderRadius: 7, color: showColMenu ? C.primary : C.secondary,
+                fontSize: 12, fontWeight: 500, padding: '7px 12px',
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              <SlidersHorizontal size={12} />
+              Columns
+            </button>
+            {showColMenu && (
+              <div
+                style={{
+                  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 40,
+                  backgroundColor: C.surface, border: `1px solid ${C.border}`,
+                  borderRadius: 8, padding: '6px 0', minWidth: 160,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                }}
+              >
+                {COLUMNS.filter(c => c.key !== '_delete' && c.label).map(col => (
+                  <label
+                    key={col.key}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '6px 14px', cursor: 'pointer',
+                      fontSize: 13, color: C.text,
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.surfaceHover)}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={visibleCols.has(col.key)}
+                      onChange={() => setVisibleCols(prev => {
+                        const next = new Set(prev)
+                        if (next.has(col.key)) next.delete(col.key)
+                        else next.add(col.key)
+                        return next
+                      })}
+                      style={{ accentColor: C.primary, cursor: 'pointer' }}
+                    />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Result count */}
           {!loading && (
             <span style={{ fontSize: 12, color: C.muted, marginLeft: 'auto' }}>
@@ -646,31 +756,51 @@ export default function DashboardPage() {
             <table style={{ width: '100%', minWidth: 1380, borderCollapse: 'collapse' }}>
 
               <colgroup>
-                {COLUMNS.map(col => <col key={col.key} style={{ width: col.width ?? undefined }} />)}
+                {COLUMNS.filter(c => visibleCols.has(c.key)).map(col => <col key={col.key} style={{ width: col.width ?? undefined }} />)}
               </colgroup>
 
               {/* Sticky header */}
-              <thead>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 20 }}>
                 <tr style={{ backgroundColor: C.sidebar }}>
-                  {COLUMNS.map(col => (
-                    <th
-                      key={col.key}
-                      style={{
-                        padding: '0 14px', height: 36, textAlign: 'left',
-                        fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-                        letterSpacing: '0.06em', color: col.editable ? C.secondary : C.muted,
-                        whiteSpace: 'nowrap', borderBottom: `1px solid ${C.border}`,
-                        backgroundColor: C.sidebar,
-                      }}
-                    >
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        {col.label}
-                        {col.editable && col.label && (
-                          <Pencil size={9} style={{ color: C.muted, opacity: 0.5 }} />
-                        )}
-                      </span>
-                    </th>
-                  ))}
+                  {COLUMNS.filter(c => visibleCols.has(c.key)).map(col => {
+                    const isSorted = sortKey === col.key
+                    const canSort  = col.key !== '_delete'
+                    return (
+                      <th
+                        key={col.key}
+                        onClick={canSort ? () => {
+                          if (sortKey === col.key) {
+                            setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                          } else {
+                            setSortKey(col.key)
+                            setSortDir('asc')
+                          }
+                        } : undefined}
+                        style={{
+                          padding: '0 14px', height: 36, textAlign: 'left',
+                          fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: isSorted ? C.primary : col.editable ? C.secondary : C.muted,
+                          whiteSpace: 'nowrap', borderBottom: `1px solid ${C.border}`,
+                          backgroundColor: C.sidebar,
+                          cursor: canSort ? 'pointer' : 'default',
+                          userSelect: 'none',
+                        }}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {col.label}
+                          {isSorted
+                            ? (sortDir === 'asc'
+                                ? <ChevronUp size={10} style={{ color: C.primary }} />
+                                : <ChevronDown size={10} style={{ color: C.primary }} />)
+                            : col.editable && col.label
+                              ? <Pencil size={9} style={{ color: C.muted, opacity: 0.5 }} />
+                              : null
+                          }
+                        </span>
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
 
@@ -678,7 +808,7 @@ export default function DashboardPage() {
                 {loading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <tr key={i}>
-                      {COLUMNS.map((col, j) => (
+                      {COLUMNS.filter(c => visibleCols.has(c.key)).map((col, j) => (
                         <td key={j} style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}` }}>
                           <div className="skeleton" style={{ height: 12, width: j === 1 ? 180 : j === 0 ? 40 : 80, borderRadius: 4 }} />
                         </td>
@@ -688,7 +818,7 @@ export default function DashboardPage() {
                 ) : filteredTasks.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={COLUMNS.length}
+                      colSpan={COLUMNS.filter(c => visibleCols.has(c.key)).length}
                       style={{ padding: '64px 24px', textAlign: 'center' }}
                     >
                       {hasFilters ? (
@@ -710,7 +840,7 @@ export default function DashboardPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTasks.map(task => {
+                  sortedTasks.map(task => {
                     const isEditing = (field: string) =>
                       editCell?.taskId === task.id && editCell.field === field
 
@@ -737,20 +867,23 @@ export default function DashboardPage() {
                       >
 
                         {/* ID */}
-                        <td style={{ padding: '0 14px', height: 40 }}>
+                        {visibleCols.has('display_id') && (
+                        <td style={{ padding: '10px 14px' }}>
                           <span style={{ fontFamily: 'monospace', fontSize: 11, color: C.primary, backgroundColor: 'rgba(123,104,238,0.1)', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>
                             {task.display_id}
                           </span>
                         </td>
+                        )}
 
                         {/* Task name — editable */}
-                        <td style={{ padding: '0 14px', height: 40, maxWidth: 260 }}>
+                        {visibleCols.has('name') && (
+                        <td style={{ padding: '10px 14px', maxWidth: 260 }}>
                           {isEditing('name') ? (
                             <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'name', editValue)} onKeyDown={onKeyDown('name')} style={cellInput} />
                           ) : (
                             <span
                               onClick={() => startEdit(task.id, 'name', task.name)}
-                              title="Click to edit"
+                              title={task.name}
                               className="editable-cell"
                               style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.text, fontWeight: 500, fontSize: 13 }}
                             >
@@ -759,9 +892,11 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Category — editable */}
-                        <td style={{ padding: '0 14px', height: 40, maxWidth: 150 }}>
+                        {visibleCols.has('category') && (
+                        <td style={{ padding: '10px 14px', maxWidth: 150 }}>
                           {isEditing('category') ? (
                             <select autoFocus value={editValue} onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'category', e.target.value) }} onBlur={() => cancelEdit()} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, cursor: 'pointer' }}>
                               <option value="">— None —</option>
@@ -780,9 +915,11 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Status — now editable */}
-                        <td style={{ padding: '0 14px', height: 40 }}>
+                        {visibleCols.has('status') && (
+                        <td style={{ padding: '10px 14px' }}>
                           {isEditing('status') ? (
                             <div style={{ position: 'relative', display: 'inline-block' }}>
                               <select
@@ -818,9 +955,11 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Priority — editable */}
-                        <td style={{ padding: '0 14px', height: 40 }}>
+                        {visibleCols.has('priority') && (
+                        <td style={{ padding: '10px 14px' }}>
                           {isEditing('priority') ? (
                             <select autoFocus value={editValue} onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'priority', e.target.value) }} onBlur={() => cancelEdit()} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, cursor: 'pointer', width: 'auto' }}>
                               {PRIORITIES.map(p => <option key={p} value={p} style={{ backgroundColor: C.surface }}>{PRIORITY_CONFIG[p].label}</option>)}
@@ -831,9 +970,11 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Taken At — editable */}
-                        <td style={{ padding: '0 14px', height: 40 }}>
+                        {visibleCols.has('taken_at') && (
+                        <td style={{ padding: '10px 14px' }}>
                           {isEditing('taken_at') ? (
                             <input type="datetime-local" autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'taken_at', editValue)} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, fontSize: 12 }} />
                           ) : (
@@ -843,9 +984,11 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Deadline — editable */}
-                        <td style={{ padding: '0 14px', height: 40 }}>
+                        {visibleCols.has('deadline') && (
+                        <td style={{ padding: '10px 14px' }}>
                           {isEditing('deadline') ? (
                             <input type="datetime-local" autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'deadline', editValue)} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, fontSize: 12 }} />
                           ) : (
@@ -855,33 +998,40 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Owner — editable */}
-                        <td style={{ padding: '0 14px', height: 40, maxWidth: 120 }}>
+                        {visibleCols.has('task_owner') && (
+                        <td style={{ padding: '10px 14px', maxWidth: 120 }}>
                           {isEditing('task_owner') ? (
                             <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'task_owner', editValue)} onKeyDown={onKeyDown('task_owner')} style={cellInput} />
                           ) : (
-                            <span onClick={() => startEdit(task.id, 'task_owner', task.task_owner ?? '')} className="editable-cell" style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: task.task_owner ? C.secondary : C.muted, fontSize: 12, flex: 1 }}>{task.task_owner ?? '—'}</span>
-                              <Pencil size={10} className="edit-hint" style={{ color: C.muted, flexShrink: 0 }} />
+                            <span onClick={() => startEdit(task.id, 'task_owner', task.task_owner ?? '')} style={{ cursor: 'pointer' }}>
+                              <OwnerAvatar value={task.task_owner} />
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Progress — read-only */}
-                        <td style={{ padding: '0 14px', height: 40, minWidth: 140 }}>
+                        {visibleCols.has('progress') && (
+                        <td style={{ padding: '10px 14px', minWidth: 140 }}>
                           <ProgressBar value={task.progress} />
                         </td>
+                        )}
 
                         {/* Time Spent — read-only */}
-                        <td style={{ padding: '0 14px', height: 40, whiteSpace: 'nowrap' }}>
+                        {visibleCols.has('time_spent') && (
+                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                           <span style={{ fontSize: 12, color: task.time_spent ? C.secondary : C.muted, fontVariantNumeric: 'tabular-nums' }}>
                             {formatTime(task.time_spent)}
                           </span>
                         </td>
+                        )}
 
                         {/* Blocked By — editable */}
-                        <td style={{ padding: '0 14px', height: 40, maxWidth: 110 }}>
+                        {visibleCols.has('blocked_by') && (
+                        <td style={{ padding: '10px 14px', maxWidth: 110 }}>
                           {isEditing('blocked_by') ? (
                             <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'blocked_by', editValue)} onKeyDown={onKeyDown('blocked_by')} style={cellInput} />
                           ) : (
@@ -891,9 +1041,11 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Note — editable */}
-                        <td style={{ padding: '0 14px', height: 40, maxWidth: 150 }}>
+                        {visibleCols.has('note') && (
+                        <td style={{ padding: '10px 14px', maxWidth: 150 }}>
                           {isEditing('note') ? (
                             <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'note', editValue)} onKeyDown={onKeyDown('note')} style={cellInput} />
                           ) : (
@@ -903,9 +1055,10 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
+                        )}
 
                         {/* Delete */}
-                        <td style={{ padding: '0 8px', height: 40, textAlign: 'center' }}>
+                        <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                           <button
                             onClick={() => askDelete(task.id, task.name)}
                             disabled={deletingId === task.id}

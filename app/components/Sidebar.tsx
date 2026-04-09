@@ -17,12 +17,12 @@ const NAV_LINKS = [
 ]
 
 const C = {
-  sidebar:  '#1E2028',
-  border:   '#363940',
-  primary:  '#7B68EE',
-  text:     '#E2E4E9',
-  secondary:'#9BA0AB',
-  muted:    '#6B7280',
+  sidebar:  '#111b24',
+  border:   '#2a3f52',
+  primary:  '#3f9cfb',
+  text:     '#ffffff',
+  secondary:'rgba(255,255,255,0.6)',
+  muted:    'rgba(255,255,255,0.4)',
 }
 
 export default function Sidebar() {
@@ -70,11 +70,11 @@ export default function Sidebar() {
           M
         </div>
         <div>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.2 }}>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>
             Mohir.dev
           </p>
           <p style={{ margin: 0, fontSize: 11, color: C.muted, lineHeight: 1.2 }}>
-            Workspace
+            Project Management
           </p>
         </div>
       </div>
@@ -112,7 +112,7 @@ export default function Sidebar() {
                   fontSize: 13,
                   fontWeight: isActive ? 500 : 400,
                   color: isActive ? '#fff' : C.secondary,
-                  backgroundColor: isActive ? 'rgba(123,104,238,0.14)' : 'transparent',
+                  backgroundColor: isActive ? 'rgba(63,156,251,0.14)' : 'transparent',
                   transition: 'background-color 0.12s, color 0.12s',
                 }}
                 onMouseEnter={e => {

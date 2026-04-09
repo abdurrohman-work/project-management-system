@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { BarChart2, RefreshCw } from 'lucide-react'
+import { BarChart2, Loader2, TrendingUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { minutesToHours } from '@/lib/time'
 import type { LoadCategory } from '@/types/database'
@@ -23,42 +23,74 @@ type ReportRow = {
   generated_at:  string
 }
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
-
-const C = {
-  bg:           '#1A1D23',
-  sidebar:      '#1E2028',
-  surface:      '#2A2D35',
-  surfaceHover: '#2E323A',
-  elevated:     '#31353F',
-  border:       '#363940',
-  primary:      '#7B68EE',
-  primaryHover: '#6C5CE7',
-  text:         '#E2E4E9',
-  secondary:    '#9BA0AB',
-  muted:        '#6B7280',
-}
-
 // ─── Load category config ─────────────────────────────────────────────────────
 
-const LOAD_CONFIG: Record<LoadCategory, { dot: string; text: string; bg: string; label: string }> = {
-  balanced:       { dot: '#4ADE80', text: '#4ADE80', bg: 'rgba(74,222,128,0.12)',  label: 'Balanced'        },
-  underperforming:{ dot: '#FBBF24', text: '#FBBF24', bg: 'rgba(251,191,36,0.12)', label: 'Underperforming' },
-  underloaded:    { dot: '#9BA0AB', text: '#9BA0AB', bg: 'rgba(155,160,171,0.12)', label: 'Underloaded'     },
-  overloaded:     { dot: '#F87171', text: '#F87171', bg: 'rgba(248,113,113,0.12)', label: 'Overloaded'      },
+const LOAD_CONFIG: Record<LoadCategory, { dot: string; textClass: string; bgClass: string; label: string }> = {
+  balanced:        { dot: '#4ade80', textClass: 'text-[#4ade80]', bgClass: 'bg-[#052e16]',  label: 'Balanced'        },
+  underperforming: { dot: '#fbbf24', textClass: 'text-[#fbbf24]', bgClass: 'bg-[#3b2f04]',  label: 'Underperforming' },
+  underloaded:     { dot: '#9ca3af', textClass: 'text-[#9ca3af]', bgClass: 'bg-[#374151]',  label: 'Underloaded'     },
+  overloaded:      { dot: '#f87171', textClass: 'text-[#f87171]', bgClass: 'bg-[#450a0a]',  label: 'Overloaded'      },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatPeriod(weekStart: string, weekEnd: string): string {
-  const s     = new Date(weekStart + 'T00:00:00')
-  const e     = new Date(weekEnd   + 'T00:00:00')
-  const sMon  = s.toLocaleDateString('en-US', { month: 'short' })
-  const eMon  = e.toLocaleDateString('en-US', { month: 'short' })
-  const sDay  = s.getDate()
-  const eDay  = e.getDate()
+  const s    = new Date(weekStart + 'T00:00:00')
+  const e    = new Date(weekEnd   + 'T00:00:00')
+  const sMon = s.toLocaleDateString('en-US', { month: 'short' })
+  const eMon = e.toLocaleDateString('en-US', { month: 'short' })
+  const sDay = s.getDate()
+  const eDay = e.getDate()
   if (sMon === eMon) return `${sMon} ${sDay}–${eDay}`
   return `${sMon} ${sDay} – ${eMon} ${eDay}`
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function LoadLevelBadge({ category }: { category: LoadCategory }) {
+  const cfg = LOAD_CONFIG[category]
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.bgClass} ${cfg.textClass}`}>
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+        style={{ backgroundColor: cfg.dot }}
+      />
+      {cfg.label}
+    </span>
+  )
+}
+
+function TableSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <tr key={i}>
+          {Array.from({ length: 6 }).map((_, j) => (
+            <td key={j} className="py-2.5 px-3 border-b border-[#2a3f52]">
+              <div
+                className="h-3 bg-[#1e2d3d] animate-pulse rounded"
+                style={{ width: j === 1 ? 100 : 56 }}
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  )
+}
+
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000)
+    return () => clearTimeout(t)
+  }, [onClose])
+
+  return (
+    <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-[#1e2d3d] border border-[#2a3f52] text-white text-sm px-4 py-3 rounded-md shadow-xl">
+      <TrendingUp size={15} className="text-[#3f9cfb] flex-shrink-0" />
+      {message}
+    </div>
+  )
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -67,6 +99,7 @@ export default function ReportPage() {
   const [rows,       setRows]       = useState<ReportRow[]>([])
   const [loading,    setLoading]    = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [toast,      setToast]      = useState<string | null>(null)
 
   useEffect(() => {
     supabase
@@ -83,7 +116,10 @@ export default function ReportPage() {
     setGenerating(true)
     const res  = await fetch('/api/reports/generate', { method: 'POST' })
     const json = await res.json()
-    if (json.success) setRows(json.data as ReportRow[])
+    if (json.success) {
+      setRows(json.data as ReportRow[])
+      setToast('Report generated successfully.')
+    }
     setGenerating(false)
   }
 
@@ -93,26 +129,19 @@ export default function ReportPage() {
     load:       r.load_level,
   }))
 
-  const COLS = ['#', 'Period', 'Total SP', 'Total AP', 'Efficiency', 'Load %', 'Load Level']
+  const COLS = ['#', 'Period', 'Planned', 'Actual', 'Efficiency %', 'Load %', 'Load Level']
 
   return (
-    <div style={{ backgroundColor: C.bg, minHeight: '100vh' }}>
+    <div className="min-h-screen bg-[#18232d]">
 
-      {/* Sticky header bar */}
-      <div
-        style={{
-          height: 56, borderBottom: `1px solid ${C.border}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '0 28px', backgroundColor: C.bg,
-          position: 'sticky', top: 0, zIndex: 30,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <BarChart2 size={16} style={{ color: C.primary }} />
-          <h1 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: C.text }}>Workload Report</h1>
+      {/* Sticky header */}
+      <div className="sticky top-0 z-30 h-14 flex items-center justify-between px-7 border-b border-[#2a3f52] bg-[#18232d]">
+        <div className="flex items-center gap-2.5">
+          <BarChart2 size={16} className="text-[#3f9cfb]" />
+          <h1 className="text-xl font-semibold text-white">Weekly Reports</h1>
           {!loading && rows.length > 0 && (
-            <span style={{ backgroundColor: 'rgba(123,104,238,0.12)', color: C.primary, fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 9999 }}>
-              {rows.length} reports
+            <span className="bg-[#3f9cfb]/10 text-[#3f9cfb] text-xs font-medium px-2 py-0.5 rounded-full">
+              {rows.length} report{rows.length !== 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -120,41 +149,46 @@ export default function ReportPage() {
         <button
           onClick={handleGenerate}
           disabled={generating}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            backgroundColor: generating ? C.elevated : C.primary,
-            color: '#fff', border: 'none', borderRadius: 7,
-            fontSize: 13, fontWeight: 500, padding: '7px 16px',
-            cursor: generating ? 'not-allowed' : 'pointer',
-            opacity: generating ? 0.7 : 1, transition: 'background-color 0.12s',
-            fontFamily: 'inherit',
-          }}
-          onMouseEnter={e => { if (!generating) (e.currentTarget.style.backgroundColor = C.primaryHover) }}
-          onMouseLeave={e => { if (!generating) (e.currentTarget.style.backgroundColor = C.primary) }}
+          className="bg-[#3f9cfb] hover:bg-[#2d8ae8] text-white text-sm px-4 py-2 rounded-md flex items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-150"
         >
-          <RefreshCw size={13} style={{ animation: generating ? 'spin 1s linear infinite' : 'none' }} />
-          {generating ? 'Generating…' : 'Generate Report'}
+          {generating ? (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              Generating...
+            </>
+          ) : (
+            <>
+              <BarChart2 size={14} />
+              Generate Report
+            </>
+          )}
         </button>
       </div>
 
-      <div style={{ padding: '24px 28px' }}>
+      <div className="px-7 py-6">
 
-        {/* Table */}
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', backgroundColor: C.surface, marginBottom: 24 }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: 700, borderCollapse: 'collapse', fontSize: 13 }}>
+        {/* Chart section */}
+        {loading ? (
+          <div className="bg-[#1e2d3d] border border-[#2a3f52] rounded-md p-4 mb-4">
+            <div className="h-3 w-40 bg-[#2a3f52] animate-pulse rounded mb-3" />
+            <div className="h-[280px] bg-[#1e2d3d] animate-pulse rounded-md" />
+          </div>
+        ) : rows.length > 0 ? (
+          <div className="bg-[#1e2d3d] border border-[#2a3f52] rounded-md p-4 mb-4">
+            <Chart data={chartData} />
+          </div>
+        ) : null}
 
+        {/* Table section */}
+        <div className="bg-[#1e2d3d] border border-[#2a3f52] rounded-md overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] border-collapse text-sm">
               <thead>
-                <tr style={{ backgroundColor: C.sidebar }}>
+                <tr className="bg-[#111b24] sticky top-0">
                   {COLS.map(label => (
                     <th
                       key={label}
-                      style={{
-                        padding: '0 16px', height: 34, textAlign: 'left',
-                        fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-                        letterSpacing: '0.06em', color: C.muted, whiteSpace: 'nowrap',
-                        borderBottom: `1px solid ${C.border}`,
-                      }}
+                      className="py-2.5 px-3 text-left text-xs font-semibold uppercase tracking-wider text-white/50 border-b border-[#2a3f52] whitespace-nowrap"
                     >
                       {label}
                     </th>
@@ -164,119 +198,105 @@ export default function ReportPage() {
 
               <tbody>
                 {loading ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <tr key={i}>
-                      {COLS.map((_, j) => (
-                        <td key={j} style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}` }}>
-                          <div className="skeleton" style={{ height: 12, width: j === 1 ? 100 : 60, borderRadius: 4 }} />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
+                  <TableSkeleton />
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={COLS.length} style={{ padding: '56px 24px', textAlign: 'center' }}>
-                      <BarChart2 size={28} style={{ color: C.muted, margin: '0 auto 12px', display: 'block' }} />
-                      <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: C.secondary }}>
-                        No report data yet
-                      </p>
-                      <p style={{ margin: 0, fontSize: 12, color: C.muted }}>
-                        Click &ldquo;Generate Report&rdquo; to calculate from current workload entries.
-                      </p>
+                    <td colSpan={COLS.length} className="py-16 px-6 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <svg
+                          width="48"
+                          height="48"
+                          viewBox="0 0 48 48"
+                          fill="none"
+                          className="text-white/20"
+                        >
+                          <rect x="6" y="10" width="36" height="28" rx="3" stroke="currentColor" strokeWidth="2" />
+                          <path d="M6 18h36" stroke="currentColor" strokeWidth="2" />
+                          <path d="M16 28h6M16 33h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          <circle cx="34" cy="30" r="6" fill="#18232d" stroke="currentColor" strokeWidth="2" />
+                          <path d="M34 28v2.5l1.5 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                        <p className="text-sm font-medium text-white/60">No reports generated yet.</p>
+                        <button
+                          onClick={handleGenerate}
+                          disabled={generating}
+                          className="bg-[#3f9cfb] hover:bg-[#2d8ae8] text-white text-sm px-4 py-2 rounded-md flex items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-150 mt-1"
+                        >
+                          {generating ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            'Generate your first report'
+                          )}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ) : (
-                  rows.map((row, idx) => {
-                    const badge = LOAD_CONFIG[row.load_category]
+                  rows.map((row, idx) => (
+                    <tr
+                      key={row.id}
+                      className="bg-[#18232d] hover:bg-[#1e2d3d] border-b border-[#2a3f52] transition-colors duration-150"
+                    >
+                      {/* # */}
+                      <td className="py-2.5 px-3 text-white/40 text-xs tabular-nums">
+                        {idx + 1}
+                      </td>
 
-                    return (
-                      <tr
-                        key={row.id}
-                        style={{ backgroundColor: C.surface, borderBottom: `1px solid ${C.border}`, transition: 'background-color 0.08s' }}
-                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.surfaceHover)}
-                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.surface)}
-                      >
-                        {/* # */}
-                        <td style={{ padding: '0 16px', height: 40, color: C.muted, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-                          {idx + 1}
-                        </td>
+                      {/* Period */}
+                      <td className="py-2.5 px-3 text-white font-medium whitespace-nowrap">
+                        {formatPeriod(row.week_start, row.week_end)}
+                      </td>
 
-                        {/* Period */}
-                        <td style={{ padding: '0 16px', height: 40, color: C.text, whiteSpace: 'nowrap', fontWeight: 500 }}>
-                          {formatPeriod(row.week_start, row.week_end)}
-                        </td>
+                      {/* Planned */}
+                      <td className="py-2.5 px-3 text-white/60 tabular-nums">
+                        {row.total_planned === 0 ? '—' : minutesToHours(row.total_planned)}
+                      </td>
 
-                        {/* Total SP */}
-                        <td style={{ padding: '0 16px', height: 40, color: C.secondary, fontVariantNumeric: 'tabular-nums' }}>
-                          {row.total_planned === 0 ? '—' : minutesToHours(row.total_planned)}
-                        </td>
+                      {/* Actual */}
+                      <td className="py-2.5 px-3 text-white/60 tabular-nums">
+                        {row.total_actual === 0 ? '—' : minutesToHours(row.total_actual)}
+                      </td>
 
-                        {/* Total AP */}
-                        <td style={{ padding: '0 16px', height: 40, color: C.secondary, fontVariantNumeric: 'tabular-nums' }}>
-                          {row.total_actual === 0 ? '—' : minutesToHours(row.total_actual)}
-                        </td>
+                      {/* Efficiency % */}
+                      <td className="py-2.5 px-3 tabular-nums font-semibold">
+                        <span
+                          className={
+                            row.efficiency >= 90
+                              ? 'text-[#4ade80]'
+                              : row.efficiency >= 70
+                              ? 'text-[#3f9cfb]'
+                              : 'text-[#f87171]'
+                          }
+                        >
+                          {row.efficiency.toFixed(1)}%
+                        </span>
+                      </td>
 
-                        {/* Efficiency */}
-                        <td style={{ padding: '0 16px', height: 40 }}>
-                          <span
-                            style={{
-                              color: row.efficiency >= 90 ? '#4ADE80' : row.efficiency >= 70 ? '#60A5FA' : '#F87171',
-                              fontWeight: 600, fontSize: 13, fontVariantNumeric: 'tabular-nums',
-                            }}
-                          >
-                            {row.efficiency.toFixed(1)}%
-                          </span>
-                        </td>
+                      {/* Load % */}
+                      <td className="py-2.5 px-3 text-white/60 tabular-nums">
+                        {row.load_level.toFixed(1)}%
+                      </td>
 
-                        {/* Load % */}
-                        <td style={{ padding: '0 16px', height: 40 }}>
-                          <span style={{ color: C.secondary, fontVariantNumeric: 'tabular-nums' }}>
-                            {row.load_level.toFixed(1)}%
-                          </span>
-                        </td>
-
-                        {/* Load Level badge */}
-                        <td style={{ padding: '0 16px', height: 40 }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, backgroundColor: badge.bg, color: badge.text, fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 9999, whiteSpace: 'nowrap' }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: badge.dot, flexShrink: 0 }} />
-                            {badge.label}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })
+                      {/* Load Level badge */}
+                      <td className="py-2.5 px-3">
+                        <LoadLevelBadge category={row.load_category} />
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Chart */}
-        {!loading && rows.length > 0 && (
-          <div
-            style={{
-              backgroundColor: C.surface,
-              border: `1px solid ${C.border}`,
-              borderRadius: 10,
-              padding: '20px 20px 12px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-              <div style={{ width: 3, height: 16, backgroundColor: C.primary, borderRadius: 2 }} />
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.text }}>
-                Efficiency vs Load
-              </p>
-              <span style={{ fontSize: 12, color: C.muted }}>— last {rows.length} report{rows.length !== 1 ? 's' : ''}</span>
-            </div>
-            <Chart data={chartData} />
-          </div>
-        )}
-
       </div>
 
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
+      {/* Toast notification */}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+
     </div>
   )
 }

@@ -3,30 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Plus, X, Flag, Trash2, ChevronDown, ChevronUp, Search,
-  LayoutDashboard, Pencil, SlidersHorizontal,
+  LayoutDashboard, Pencil, SlidersHorizontal, ClipboardList,
 } from 'lucide-react'
 import { minutesToHours } from '@/lib/time'
 import type { MainTask, MainTaskStatus, TaskPriority } from '@/types/database'
 import { ToastContainer, useToast } from '@/app/components/Toast'
 import { ConfirmDialog }           from '@/app/components/ConfirmDialog'
-
-// ─── Design tokens ────────────────────────────────────────────────────────────
-
-const C = {
-  bg:           '#1A1D23',
-  sidebar:      '#1E2028',
-  surface:      '#2A2D35',
-  surfaceHover: '#2E323A',
-  elevated:     '#31353F',
-  border:       '#363940',
-  borderHover:  '#4A4F5A',
-  primary:      '#7B68EE',
-  primaryHover: '#6C5CE7',
-  text:         '#E2E4E9',
-  secondary:    '#9BA0AB',
-  muted:        '#6B7280',
-  danger:       '#EF4444',
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -42,23 +24,21 @@ const ALL_STATUSES: MainTaskStatus[] = ['backlog', 'in_progress', 'blocked', 'st
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<MainTaskStatus, {
-  dot: string; text: string; bg: string; label: string
-}> = {
-  backlog:     { dot: '#9BA0AB', text: '#9BA0AB', bg: 'rgba(155,160,171,0.12)', label: 'Backlog'     },
-  in_progress: { dot: '#60A5FA', text: '#60A5FA', bg: 'rgba(59,130,246,0.12)',  label: 'In Progress' },
-  blocked:     { dot: '#F87171', text: '#F87171', bg: 'rgba(239,68,68,0.12)',   label: 'Blocked'     },
-  stopped:     { dot: '#FBBF24', text: '#FBBF24', bg: 'rgba(245,158,11,0.12)', label: 'Stopped'     },
-  done:        { dot: '#4ADE80', text: '#4ADE80', bg: 'rgba(74,222,128,0.12)', label: 'Done'        },
+const STATUS_CONFIG: Record<MainTaskStatus, { dot: string; badgeBg: string; badgeText: string; label: string }> = {
+  backlog:     { dot: '#9ca3af', badgeBg: '#374151', badgeText: '#9ca3af', label: 'Backlog'     },
+  in_progress: { dot: '#3f9cfb', badgeBg: '#1e3a5f', badgeText: '#3f9cfb', label: 'In Progress' },
+  blocked:     { dot: '#f87171', badgeBg: '#450a0a', badgeText: '#f87171', label: 'Blocked'     },
+  stopped:     { dot: '#fb923c', badgeBg: '#431407', badgeText: '#fb923c', label: 'Stopped'     },
+  done:        { dot: '#4ade80', badgeBg: '#052e16', badgeText: '#4ade80', label: 'Done'        },
 }
 
 // ─── Priority config ──────────────────────────────────────────────────────────
 
-const PRIORITY_CONFIG: Record<TaskPriority, { color: string; label: string }> = {
-  critical: { color: '#EF4444', label: 'Critical' },
-  high:     { color: '#F59E0B', label: 'High'     },
-  medium:   { color: '#3B82F6', label: 'Medium'   },
-  low:      { color: '#6B7280', label: 'Low'      },
+const PRIORITY_CONFIG: Record<TaskPriority, { flagColor: string; badgeBg: string; badgeText: string; label: string }> = {
+  low:      { flagColor: '#9ca3af', badgeBg: '#374151', badgeText: '#9ca3af', label: 'Low'      },
+  medium:   { flagColor: '#60a5fa', badgeBg: '#1e3a5f', badgeText: '#60a5fa', label: 'Medium'   },
+  high:     { flagColor: '#fb923c', badgeBg: '#431407', badgeText: '#fb923c', label: 'High'     },
+  critical: { flagColor: '#f87171', badgeBg: '#450a0a', badgeText: '#f87171', label: 'Critical' },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,34 +75,28 @@ function StatusBadge({
   const s = STATUS_CONFIG[status]
   return (
     <span
-      style={{
-        display:         'inline-flex',
-        alignItems:      'center',
-        gap:             5,
-        backgroundColor: s.bg,
-        color:           s.text,
-        padding:         '3px 8px',
-        borderRadius:    9999,
-        fontSize:        11,
-        fontWeight:      500,
-        whiteSpace:      'nowrap',
-        cursor:          interactive ? 'pointer' : 'default',
-        userSelect:      'none',
-      }}
+      className="inline-flex items-center gap-[5px] rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap select-none"
+      style={{ backgroundColor: s.badgeBg, color: s.badgeText, cursor: interactive ? 'pointer' : 'default' }}
     >
-      <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: s.dot, flexShrink: 0 }} />
+      <span
+        className="shrink-0 rounded-full"
+        style={{ width: 6, height: 6, backgroundColor: s.dot }}
+      />
       {s.label}
-      {interactive && <ChevronDown size={10} style={{ marginLeft: 1 }} />}
+      {interactive && <ChevronDown size={10} className="ml-[1px]" />}
     </span>
   )
 }
 
-function PriorityFlag({ priority }: { priority: TaskPriority }) {
+function PriorityBadge({ priority }: { priority: TaskPriority }) {
   const p = PRIORITY_CONFIG[priority]
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: p.color }}>
-      <Flag size={13} fill={p.color} style={{ flexShrink: 0 }} />
-      <span style={{ fontSize: 12, fontWeight: 500 }}>{p.label}</span>
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap select-none"
+      style={{ backgroundColor: p.badgeBg, color: p.badgeText }}
+    >
+      <Flag size={10} fill={p.flagColor} style={{ color: p.flagColor, flexShrink: 0 }} />
+      {p.label}
     </span>
   )
 }
@@ -130,11 +104,14 @@ function PriorityFlag({ priority }: { priority: TaskPriority }) {
 function ProgressBar({ value }: { value: number }) {
   const pct = Math.min(100, Math.max(0, value))
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ flex: 1, height: 6, backgroundColor: '#2a3f52', borderRadius: 9999, overflow: 'hidden' }}>
-        <div style={{ height: 6, width: `${pct}%`, backgroundColor: '#4ADE80', borderRadius: 9999, transition: 'width 0.4s ease' }} />
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 rounded-full bg-[#2a3f52] overflow-hidden">
+        <div
+          className="h-1.5 rounded-full bg-[#4ade80] transition-[width] duration-300 ease-in-out"
+          style={{ width: `${pct}%` }}
+        />
       </div>
-      <span style={{ color: C.secondary, fontSize: 11, minWidth: 30, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+      <span className="text-white/60 text-[11px] min-w-[30px] text-right tabular-nums">
         {pct.toFixed(0)}%
       </span>
     </div>
@@ -142,22 +119,21 @@ function ProgressBar({ value }: { value: number }) {
 }
 
 function OwnerAvatar({ value }: { value: string | null }) {
-  if (!value) return <span style={{ color: C.muted, fontSize: 12 }}>—</span>
+  if (!value) return <span className="text-white/40 text-xs">—</span>
   const parts    = value.split('@')[0].replace(/[._-]/g, ' ').split(' ')
   const initials = parts.slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('')
   const hue      = [...value].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % 360
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{
-        width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-        backgroundColor: `hsl(${hue},45%,35%)`,
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 10, fontWeight: 600, color: '#fff',
-      }}>
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className="shrink-0 rounded-full inline-flex items-center justify-center text-[10px] font-semibold text-white"
+        style={{ width: 26, height: 26, backgroundColor: `hsl(${hue},45%,35%)` }}
+      >
         {initials}
       </span>
       <span
-        style={{ fontSize: 12, color: C.secondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}
+        className="text-[12px] text-white/60 overflow-hidden text-ellipsis whitespace-nowrap"
+        style={{ maxWidth: 80 }}
         title={value}
       >
         {value.split('@')[0]}
@@ -168,34 +144,20 @@ function OwnerAvatar({ value }: { value: string | null }) {
 
 function MetricCard({ label, value, color, sub }: { label: string; value: number; color: string; sub?: string }) {
   return (
-    <div style={{ backgroundColor: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '16px 20px' }}>
-      <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.muted }}>{label}</p>
-      <p style={{ margin: 0, fontSize: 28, fontWeight: 700, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
-      {sub && <p style={{ margin: '6px 0 0', fontSize: 11, color: C.muted }}>{sub}</p>}
+    <div className="bg-[#1e2d3d] border border-[#2a3f52] rounded-md p-4">
+      <p className="m-0 mb-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-white/40">{label}</p>
+      <p className="m-0 text-[28px] font-bold leading-none tabular-nums" style={{ color }}>{value}</p>
+      {sub && <p className="m-0 mt-1.5 text-[11px] text-white/40">{sub}</p>}
     </div>
   )
 }
 
 function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
   return (
-    <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: C.secondary, marginBottom: 6 }}>
-      {children}{required && <span style={{ color: C.danger, marginLeft: 2 }}>*</span>}
+    <label className="block text-[12px] font-medium text-white/60 mb-1.5">
+      {children}{required && <span className="text-[#f87171] ml-0.5">*</span>}
     </label>
   )
-}
-
-// ─── Shared styles ────────────────────────────────────────────────────────────
-
-const modalInput: React.CSSProperties = {
-  width: '100%', backgroundColor: C.bg, border: `1px solid ${C.border}`,
-  borderRadius: 6, color: C.text, padding: '8px 12px',
-  fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
-}
-
-const cellInput: React.CSSProperties = {
-  backgroundColor: C.bg, border: `1.5px solid ${C.primary}`, borderRadius: 5,
-  color: C.text, padding: '3px 8px', fontSize: 13, outline: 'none',
-  width: '100%', fontFamily: 'inherit',
 }
 
 // ─── Empty form ───────────────────────────────────────────────────────────────
@@ -222,6 +184,14 @@ const COLUMNS = [
   { key: 'note',       label: 'Note',       width: 150,       editable: true  },
   { key: '_delete',    label: '',           width: 44,        editable: false },
 ]
+
+// ─── Shared input class helpers ───────────────────────────────────────────────
+
+const modalInputClass =
+  'w-full bg-[#111b24] border border-[#2a3f52] text-white rounded-md px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-[#3f9cfb] font-[inherit] box-border'
+
+const cellInputClass =
+  'w-full bg-[#111b24] border-[1.5px] border-[#3f9cfb] text-white rounded-md px-2 py-1 text-[13px] outline-none font-[inherit]'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -400,7 +370,7 @@ export default function DashboardPage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ backgroundColor: C.bg, minHeight: '100vh' }}>
+    <div className="bg-[#18232d] min-h-screen">
 
       {/* Toast */}
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
@@ -416,96 +386,61 @@ export default function DashboardPage() {
       />
 
       {/* ── Sticky page header ── */}
-      <div
-        style={{
-          height:       56,
-          borderBottom: `1px solid ${C.border}`,
-          display:      'flex',
-          alignItems:   'center',
-          justifyContent: 'space-between',
-          padding:      '0 28px',
-          backgroundColor: C.bg,
-          position:     'sticky',
-          top:          0,
-          zIndex:       30,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <LayoutDashboard size={16} style={{ color: C.primary }} />
-          <h1 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: C.text }}>Dashboard</h1>
-          <span
-            style={{
-              backgroundColor: 'rgba(123,104,238,0.12)',
-              color: C.primary, fontSize: 11, fontWeight: 500,
-              padding: '2px 8px', borderRadius: 9999,
-            }}
-          >
+      <div className="h-14 border-b border-[#2a3f52] flex items-center justify-between px-7 bg-[#18232d] sticky top-0 z-30">
+        <div className="flex items-center gap-2.5">
+          <LayoutDashboard size={16} className="text-[#3f9cfb]" />
+          <h1 className="m-0 text-sm font-semibold text-white">Dashboard</h1>
+          <span className="bg-[#1e3a5f] text-[#3f9cfb] text-[11px] font-medium px-2 py-0.5 rounded-full">
             {loading ? '…' : total}
           </span>
         </div>
 
         <button
           onClick={() => { setShowModal(true); setForm(EMPTY_FORM); setFormError(null) }}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            backgroundColor: C.primary, color: '#fff', border: 'none',
-            borderRadius: 7, padding: '7px 14px', fontSize: 13, fontWeight: 500,
-            cursor: 'pointer', transition: 'background-color 0.12s',
-          }}
-          onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.primaryHover)}
-          onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.primary)}
+          className="inline-flex items-center gap-1.5 bg-[#3f9cfb] hover:bg-[#2d8ae8] text-white text-sm px-3 py-1.5 rounded-md font-medium cursor-pointer border-none transition-colors duration-150"
         >
           <Plus size={14} />
           New Task
         </button>
       </div>
 
-      <div style={{ padding: '24px 28px' }}>
+      <div className="px-7 py-6">
 
         {/* ── Metric cards ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <div className="grid grid-cols-4 gap-3 mb-5">
           {loading
             ? Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="skeleton" style={{ height: 88, borderRadius: 10 }} />
+                <div key={i} className="skeleton h-[88px] rounded-md" />
               ))
             : <>
-                <MetricCard label="Total Tasks"  value={total}      color={C.text}    sub="all epics"         />
-                <MetricCard label="In Progress"  value={inProgress} color={C.primary} sub="currently active"  />
-                <MetricCard label="Blocked"      value={blocked}    color="#F87171"   sub="need attention"    />
-                <MetricCard label="Done"         value={done}       color="#4ADE80"   sub="completed"         />
+                <MetricCard label="Total Tasks"  value={total}      color="#ffffff"   sub="all epics"         />
+                <MetricCard label="In Progress"  value={inProgress} color="#3f9cfb"   sub="currently active"  />
+                <MetricCard label="Blocked"      value={blocked}    color="#f87171"   sub="need attention"    />
+                <MetricCard label="Done"         value={done}       color="#4ade80"   sub="completed"         />
               </>
           }
         </div>
 
         {/* ── Filter bar ── */}
-        <div
-          style={{
-            display:      'flex',
-            alignItems:   'center',
-            gap:          8,
-            marginBottom: 14,
-            flexWrap:     'wrap',
-          }}
-        >
+        <div className="flex items-center gap-2 mb-3.5 flex-wrap">
+
           {/* Search */}
-          <div style={{ position: 'relative', flex: 1, minWidth: 180, maxWidth: 280 }}>
-            <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
+          <div className="relative flex-1 min-w-[180px] max-w-[280px]">
+            <Search
+              size={13}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
+            />
             <input
               type="text"
               placeholder="Search tasks…"
               value={filterText}
               onChange={e => setFilterText(e.target.value)}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                backgroundColor: C.surface, border: `1px solid ${C.border}`,
-                borderRadius: 7, color: C.text, fontSize: 13,
-                padding: '7px 12px 7px 32px', outline: 'none', fontFamily: 'inherit',
-              }}
+              className="w-full box-border bg-[#111b24] border border-[#2a3f52] rounded-md text-white text-sm pl-8 pr-8 py-1.5 outline-none placeholder:text-white/30 focus:border-[#3f9cfb] font-[inherit]"
             />
             {filterText && (
               <button
                 onClick={() => setFilterText('')}
-                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.muted, padding: 0, display: 'flex' }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-white/40 p-0 flex items-center hover:text-white/70"
               >
                 <X size={12} />
               </button>
@@ -513,63 +448,62 @@ export default function DashboardPage() {
           </div>
 
           {/* Status filter */}
-          <div style={{ position: 'relative' }}>
+          <div className="relative">
             <select
               value={filterStatus}
               onChange={e => setFilterStatus(e.target.value as MainTaskStatus | '')}
+              className="bg-[#111b24] border border-[#2a3f52] rounded-md text-white text-sm pl-2.5 pr-7 py-1.5 cursor-pointer outline-none font-[inherit] focus:border-[#3f9cfb]"
               style={{
-                backgroundColor: filterStatus ? 'rgba(123,104,238,0.12)' : C.surface,
-                border: `1px solid ${filterStatus ? C.primary : C.border}`,
-                borderRadius: 7, color: filterStatus ? C.primary : C.secondary,
-                fontSize: 12, fontWeight: 500, padding: '7px 28px 7px 10px',
-                cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none',
+                backgroundColor: filterStatus ? '#1e3a5f' : '#111b24',
+                borderColor:     filterStatus ? '#3f9cfb' : '#2a3f52',
+                color:           filterStatus ? '#3f9cfb' : 'rgba(255,255,255,0.6)',
               }}
             >
               <option value="">All Statuses</option>
               {ALL_STATUSES.map(s => (
-                <option key={s} value={s} style={{ backgroundColor: C.surface, color: C.text }}>
+                <option key={s} value={s} style={{ backgroundColor: '#1e2d3d', color: '#ffffff' }}>
                   {STATUS_CONFIG[s].label}
                 </option>
               ))}
             </select>
-            <ChevronDown size={12} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: filterStatus ? C.primary : C.muted, pointerEvents: 'none' }} />
+            <ChevronDown
+              size={12}
+              className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: filterStatus ? '#3f9cfb' : 'rgba(255,255,255,0.4)' }}
+            />
           </div>
 
           {/* Priority filter */}
-          <div style={{ position: 'relative' }}>
+          <div className="relative">
             <select
               value={filterPriority}
               onChange={e => setFilterPriority(e.target.value as TaskPriority | '')}
+              className="bg-[#111b24] border border-[#2a3f52] rounded-md text-white text-sm pl-2.5 pr-7 py-1.5 cursor-pointer outline-none font-[inherit] focus:border-[#3f9cfb]"
               style={{
-                backgroundColor: filterPriority ? 'rgba(123,104,238,0.12)' : C.surface,
-                border: `1px solid ${filterPriority ? C.primary : C.border}`,
-                borderRadius: 7, color: filterPriority ? C.primary : C.secondary,
-                fontSize: 12, fontWeight: 500, padding: '7px 28px 7px 10px',
-                cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none',
+                backgroundColor: filterPriority ? '#1e3a5f' : '#111b24',
+                borderColor:     filterPriority ? '#3f9cfb' : '#2a3f52',
+                color:           filterPriority ? '#3f9cfb' : 'rgba(255,255,255,0.6)',
               }}
             >
               <option value="">All Priorities</option>
               {PRIORITIES.map(p => (
-                <option key={p} value={p} style={{ backgroundColor: C.surface, color: C.text }}>
+                <option key={p} value={p} style={{ backgroundColor: '#1e2d3d', color: '#ffffff' }}>
                   {PRIORITY_CONFIG[p].label}
                 </option>
               ))}
             </select>
-            <ChevronDown size={12} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: filterPriority ? C.primary : C.muted, pointerEvents: 'none' }} />
+            <ChevronDown
+              size={12}
+              className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: filterPriority ? '#3f9cfb' : 'rgba(255,255,255,0.4)' }}
+            />
           </div>
 
           {/* Clear filters */}
           {hasFilters && (
             <button
               onClick={() => { setFilterText(''); setFilterStatus(''); setFilterPriority('') }}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                backgroundColor: 'transparent', border: `1px solid ${C.border}`,
-                borderRadius: 7, color: C.secondary, fontSize: 12,
-                padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit',
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.borderHover; (e.currentTarget as HTMLButtonElement).style.color = C.text }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.border; (e.currentTarget as HTMLButtonElement).style.color = C.secondary }}
+              className="inline-flex items-center gap-1 bg-transparent border border-[#2a3f52] hover:border-[#3a5168] rounded-md text-white/60 hover:text-white text-[12px] px-3 py-1.5 cursor-pointer font-[inherit] transition-colors duration-150"
             >
               <X size={11} />
               Clear filters
@@ -577,40 +511,25 @@ export default function DashboardPage() {
           )}
 
           {/* Show / hide columns */}
-          <div ref={colMenuRef} style={{ position: 'relative' }}>
+          <div ref={colMenuRef} className="relative">
             <button
               onClick={() => setShowColMenu(v => !v)}
+              className="inline-flex items-center gap-1.5 border rounded-md text-[12px] font-medium px-3 py-1.5 cursor-pointer font-[inherit] transition-colors duration-150"
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                backgroundColor: showColMenu ? 'rgba(123,104,238,0.12)' : C.surface,
-                border: `1px solid ${showColMenu ? C.primary : C.border}`,
-                borderRadius: 7, color: showColMenu ? C.primary : C.secondary,
-                fontSize: 12, fontWeight: 500, padding: '7px 12px',
-                cursor: 'pointer', fontFamily: 'inherit',
+                backgroundColor: showColMenu ? '#1e3a5f' : '#111b24',
+                borderColor:     showColMenu ? '#3f9cfb' : '#2a3f52',
+                color:           showColMenu ? '#3f9cfb' : 'rgba(255,255,255,0.6)',
               }}
             >
               <SlidersHorizontal size={12} />
               Columns
             </button>
             {showColMenu && (
-              <div
-                style={{
-                  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 40,
-                  backgroundColor: C.surface, border: `1px solid ${C.border}`,
-                  borderRadius: 8, padding: '6px 0', minWidth: 160,
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-                }}
-              >
+              <div className="absolute top-[calc(100%+6px)] right-0 z-40 bg-[#1e2d3d] border border-[#2a3f52] rounded-lg py-1.5 min-w-[160px] shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
                 {COLUMNS.filter(c => c.key !== '_delete' && c.label).map(col => (
                   <label
                     key={col.key}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '6px 14px', cursor: 'pointer',
-                      fontSize: 13, color: C.text,
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.surfaceHover)}
-                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    className="flex items-center gap-2 px-3.5 py-1.5 cursor-pointer text-[13px] text-white hover:bg-[#243445] transition-colors duration-100"
                   >
                     <input
                       type="checkbox"
@@ -621,7 +540,7 @@ export default function DashboardPage() {
                         else next.add(col.key)
                         return next
                       })}
-                      style={{ accentColor: C.primary, cursor: 'pointer' }}
+                      className="cursor-pointer accent-[#3f9cfb]"
                     />
                     {col.label}
                   </label>
@@ -632,7 +551,7 @@ export default function DashboardPage() {
 
           {/* Result count */}
           {!loading && (
-            <span style={{ fontSize: 12, color: C.muted, marginLeft: 'auto' }}>
+            <span className="text-[12px] text-white/40 ml-auto">
               {hasFilters
                 ? `${filteredTasks.length} of ${total} tasks`
                 : `${total} task${total !== 1 ? 's' : ''}`
@@ -644,104 +563,137 @@ export default function DashboardPage() {
         {/* ── Create modal ── */}
         {showModal && (
           <div
-            style={{
-              position: 'fixed', inset: 0,
-              backgroundColor: 'rgba(0,0,0,0.65)',
-              backdropFilter: 'blur(4px)', zIndex: 50,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
+            className="fixed inset-0 bg-black/65 backdrop-blur-[4px] z-50 flex items-center justify-center"
             onClick={() => setShowModal(false)}
           >
             <form
               onSubmit={handleCreate}
               onClick={e => e.stopPropagation()}
-              className="modal-enter"
-              style={{
-                backgroundColor: C.surface, border: `1px solid ${C.border}`,
-                borderRadius: 12, width: 540, maxWidth: '95vw',
-                maxHeight: '90vh', overflowY: 'auto', zIndex: 51,
-                boxShadow: '0 24px 48px rgba(0,0,0,0.35)',
-              }}
+              className="modal-enter bg-[#1e2d3d] border border-[#2a3f52] rounded-xl w-[540px] max-w-[95vw] max-h-[90vh] overflow-y-auto z-[51] shadow-[0_24px_48px_rgba(0,0,0,0.45)]"
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: `1px solid ${C.border}` }}>
-                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: C.text }}>Create New Task</h2>
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-6 py-[18px] border-b border-[#2a3f52]">
+                <h2 className="m-0 text-[15px] font-semibold text-white">Create New Task</h2>
                 <button
-                  type="button" onClick={() => setShowModal(false)}
-                  style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = C.text)}
-                  onMouseLeave={e => (e.currentTarget.style.color = C.muted)}
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="bg-transparent border-none text-white/40 hover:text-white cursor-pointer p-1 rounded-md flex items-center transition-colors duration-150"
                 >
                   <X size={16} />
                 </button>
               </div>
 
-              <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Modal body */}
+              <div className="px-6 py-5 flex flex-col gap-4">
 
                 <div>
                   <FieldLabel required>Task Name</FieldLabel>
                   <input
-                    type="text" value={form.name} autoFocus
+                    type="text"
+                    value={form.name}
+                    autoFocus
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                    placeholder="Enter task name…" style={modalInput}
+                    placeholder="Enter task name…"
+                    className={modalInputClass}
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <FieldLabel>Category</FieldLabel>
-                    <div style={{ position: 'relative' }}>
-                      <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={{ ...modalInput, paddingRight: 32, cursor: 'pointer' }}>
+                    <div className="relative">
+                      <select
+                        value={form.category}
+                        onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                        className={`${modalInputClass} pr-8 cursor-pointer`}
+                      >
                         <option value="">— Select —</option>
-                        {CATEGORIES.map(c => <option key={c} value={c} style={{ backgroundColor: C.surface }}>{c}</option>)}
+                        {CATEGORIES.map(c => (
+                          <option key={c} value={c} style={{ backgroundColor: '#1e2d3d' }}>{c}</option>
+                        ))}
                       </select>
-                      <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
+                      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
                     </div>
                   </div>
                   <div>
                     <FieldLabel>Priority</FieldLabel>
-                    <div style={{ position: 'relative' }}>
-                      <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as TaskPriority }))} style={{ ...modalInput, paddingRight: 32, cursor: 'pointer' }}>
-                        {PRIORITIES.map(p => <option key={p} value={p} style={{ backgroundColor: C.surface }}>{PRIORITY_CONFIG[p].label}</option>)}
+                    <div className="relative">
+                      <select
+                        value={form.priority}
+                        onChange={e => setForm(f => ({ ...f, priority: e.target.value as TaskPriority }))}
+                        className={`${modalInputClass} pr-8 cursor-pointer`}
+                      >
+                        {PRIORITIES.map(p => (
+                          <option key={p} value={p} style={{ backgroundColor: '#1e2d3d' }}>{PRIORITY_CONFIG[p].label}</option>
+                        ))}
                       </select>
-                      <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
+                      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
                     </div>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <FieldLabel>Taken At</FieldLabel>
-                    <input type="datetime-local" value={form.taken_at} onChange={e => setForm(f => ({ ...f, taken_at: e.target.value }))} style={modalInput} />
+                    <input
+                      type="datetime-local"
+                      value={form.taken_at}
+                      onChange={e => setForm(f => ({ ...f, taken_at: e.target.value }))}
+                      className={modalInputClass}
+                    />
                   </div>
                   <div>
                     <FieldLabel>Deadline</FieldLabel>
-                    <input type="datetime-local" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} style={modalInput} />
+                    <input
+                      type="datetime-local"
+                      value={form.deadline}
+                      onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))}
+                      className={modalInputClass}
+                    />
                   </div>
                 </div>
 
                 <div>
                   <FieldLabel>Task Owner</FieldLabel>
-                  <input type="text" value={form.task_owner} onChange={e => setForm(f => ({ ...f, task_owner: e.target.value }))} placeholder="e.g. john@example.com" style={modalInput} />
+                  <input
+                    type="text"
+                    value={form.task_owner}
+                    onChange={e => setForm(f => ({ ...f, task_owner: e.target.value }))}
+                    placeholder="e.g. john@example.com"
+                    className={modalInputClass}
+                  />
                 </div>
 
                 <div>
                   <FieldLabel>Note</FieldLabel>
-                  <textarea value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="Optional notes…" rows={3} style={{ ...modalInput, resize: 'vertical', minHeight: 72 }} />
+                  <textarea
+                    value={form.note}
+                    onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+                    placeholder="Optional notes…"
+                    rows={3}
+                    className={`${modalInputClass} resize-y min-h-[72px]`}
+                  />
                 </div>
 
-                {formError && <p style={{ margin: 0, fontSize: 12, color: C.danger }}>{formError}</p>}
+                {formError && (
+                  <p className="m-0 text-[12px] text-[#f87171]">{formError}</p>
+                )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 24px', borderTop: `1px solid ${C.border}` }}>
+              {/* Modal footer */}
+              <div className="flex justify-end gap-2 px-6 py-3.5 border-t border-[#2a3f52]">
                 <button
-                  type="button" onClick={() => setShowModal(false)}
-                  style={{ backgroundColor: 'transparent', border: `1px solid ${C.border}`, borderRadius: 7, color: C.secondary, padding: '7px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="bg-transparent border border-[#2a3f52] hover:bg-[#1e2d3d] text-white text-sm px-4 py-1.5 rounded-md font-medium cursor-pointer font-[inherit] transition-colors duration-150"
                 >
                   Cancel
                 </button>
                 <button
-                  type="submit" disabled={submitting}
-                  style={{ backgroundColor: C.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '7px 20px', fontSize: 13, fontWeight: 500, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1, fontFamily: 'inherit' }}
+                  type="submit"
+                  disabled={submitting}
+                  className="bg-[#3f9cfb] hover:bg-[#2d8ae8] text-white text-sm px-5 py-1.5 rounded-md font-medium border-none font-[inherit] transition-colors duration-150"
+                  style={{ cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
                 >
                   {submitting ? 'Creating…' : 'Create Task'}
                 </button>
@@ -751,17 +703,19 @@ export default function DashboardPage() {
         )}
 
         {/* ── Table ── */}
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', backgroundColor: C.surface }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: 1380, borderCollapse: 'collapse' }}>
+        <div className="border border-[#2a3f52] rounded-lg overflow-hidden bg-[#1e2d3d]">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse" style={{ minWidth: 1380 }}>
 
               <colgroup>
-                {COLUMNS.filter(c => visibleCols.has(c.key)).map(col => <col key={col.key} style={{ width: col.width ?? undefined }} />)}
+                {COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
+                  <col key={col.key} style={{ width: col.width ?? undefined }} />
+                ))}
               </colgroup>
 
               {/* Sticky header */}
-              <thead style={{ position: 'sticky', top: 0, zIndex: 20 }}>
-                <tr style={{ backgroundColor: C.sidebar }}>
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-[#111b24]">
                   {COLUMNS.filter(c => visibleCols.has(c.key)).map(col => {
                     const isSorted = sortKey === col.key
                     const canSort  = col.key !== '_delete'
@@ -776,25 +730,21 @@ export default function DashboardPage() {
                             setSortDir('asc')
                           }
                         } : undefined}
+                        className="px-3 h-9 text-left text-xs uppercase tracking-wider border-b border-[#2a3f52] bg-[#111b24] whitespace-nowrap select-none"
                         style={{
-                          padding: '0 14px', height: 36, textAlign: 'left',
-                          fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-                          letterSpacing: '0.06em',
-                          color: isSorted ? C.primary : col.editable ? C.secondary : C.muted,
-                          whiteSpace: 'nowrap', borderBottom: `1px solid ${C.border}`,
-                          backgroundColor: C.sidebar,
+                          color:  isSorted ? '#3f9cfb' : col.editable ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.35)',
                           cursor: canSort ? 'pointer' : 'default',
-                          userSelect: 'none',
+                          fontWeight: 600,
                         }}
                       >
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <span className="inline-flex items-center gap-1">
                           {col.label}
                           {isSorted
                             ? (sortDir === 'asc'
-                                ? <ChevronUp size={10} style={{ color: C.primary }} />
-                                : <ChevronDown size={10} style={{ color: C.primary }} />)
+                                ? <ChevronUp size={10} className="text-[#3f9cfb]" />
+                                : <ChevronDown size={10} className="text-[#3f9cfb]" />)
                             : col.editable && col.label
-                              ? <Pencil size={9} style={{ color: C.muted, opacity: 0.5 }} />
+                              ? <Pencil size={9} className="text-white/30" />
                               : null
                           }
                         </span>
@@ -805,40 +755,57 @@ export default function DashboardPage() {
               </thead>
 
               <tbody>
+                {/* Loading skeleton */}
                 {loading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i}>
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <tr key={i} className="border-b border-[#2a3f52]">
                       {COLUMNS.filter(c => visibleCols.has(c.key)).map((col, j) => (
-                        <td key={j} style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}` }}>
-                          <div className="skeleton" style={{ height: 12, width: j === 1 ? 180 : j === 0 ? 40 : 80, borderRadius: 4 }} />
+                        <td key={j} className="py-2.5 px-3">
+                          <div
+                            className="skeleton rounded"
+                            style={{ height: 12, width: j === 1 ? 180 : j === 0 ? 40 : 80 }}
+                          />
                         </td>
                       ))}
                     </tr>
                   ))
+
+                /* Empty state */
                 ) : filteredTasks.length === 0 ? (
                   <tr>
                     <td
                       colSpan={COLUMNS.filter(c => visibleCols.has(c.key)).length}
-                      style={{ padding: '64px 24px', textAlign: 'center' }}
+                      className="py-16 px-6 text-center"
                     >
                       {hasFilters ? (
-                        <>
-                          <SlidersHorizontal size={28} style={{ color: C.muted, margin: '0 auto 12px' }} />
-                          <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: C.secondary }}>
+                        <div className="flex flex-col items-center gap-3">
+                          <SlidersHorizontal size={28} className="text-white/40" />
+                          <p className="m-0 text-sm font-medium text-white/60">
                             No tasks match your filters
                           </p>
-                          <p style={{ margin: 0, fontSize: 12, color: C.muted }}>
+                          <p className="m-0 text-xs text-white/40">
                             Try adjusting or clearing the filters.
                           </p>
-                        </>
+                        </div>
                       ) : (
-                        <>
-                          <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: C.secondary }}>No tasks yet</p>
-                          <p style={{ margin: 0, fontSize: 12, color: C.muted }}>Click &ldquo;New Task&rdquo; to create your first epic.</p>
-                        </>
+                        <div className="flex flex-col items-center gap-3">
+                          <ClipboardList size={32} className="text-white/30" />
+                          <p className="m-0 text-sm font-medium text-white/60">
+                            No tasks yet. Create your first task.
+                          </p>
+                          <button
+                            onClick={() => { setShowModal(true); setForm(EMPTY_FORM); setFormError(null) }}
+                            className="inline-flex items-center gap-1.5 bg-[#3f9cfb] hover:bg-[#2d8ae8] text-white text-sm px-3 py-1.5 rounded-md font-medium cursor-pointer border-none transition-colors duration-150 mt-1"
+                          >
+                            <Plus size={14} />
+                            New Task
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
+
+                /* Data rows */
                 ) : (
                   sortedTasks.map(task => {
                     const isEditing = (field: string) =>
@@ -855,237 +822,313 @@ export default function DashboardPage() {
                     return (
                       <tr
                         key={task.id}
-                        className={isNew ? 'row-flash' : undefined}
-                        style={{
-                          backgroundColor: C.surface,
-                          borderBottom:    `1px solid ${C.border}`,
-                          transition:      'background-color 0.1s',
-                          opacity:         deletingId === task.id ? 0.4 : 1,
-                        }}
-                        onMouseEnter={e => { if (!isNew) e.currentTarget.style.backgroundColor = C.surfaceHover }}
-                        onMouseLeave={e => { if (!isNew) e.currentTarget.style.backgroundColor = C.surface }}
+                        className={`bg-[#18232d] hover:bg-[#1e2d3d] border-b border-[#2a3f52] transition-colors duration-150${isNew ? ' row-flash' : ''}`}
+                        style={{ opacity: deletingId === task.id ? 0.4 : 1 }}
                       >
 
                         {/* ID */}
                         {visibleCols.has('display_id') && (
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{ fontFamily: 'monospace', fontSize: 11, color: C.primary, backgroundColor: 'rgba(123,104,238,0.1)', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>
-                            {task.display_id}
-                          </span>
-                        </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-mono text-[11px] text-[#3f9cfb] bg-[#1e3a5f]/50 px-1.5 py-0.5 rounded whitespace-nowrap">
+                              {task.display_id}
+                            </span>
+                          </td>
                         )}
 
                         {/* Task name — editable */}
                         {visibleCols.has('name') && (
-                        <td style={{ padding: '10px 14px', maxWidth: 260 }}>
-                          {isEditing('name') ? (
-                            <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'name', editValue)} onKeyDown={onKeyDown('name')} style={cellInput} />
-                          ) : (
-                            <span
-                              onClick={() => startEdit(task.id, 'name', task.name)}
-                              title={task.name}
-                              className="editable-cell"
-                              style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.text, fontWeight: 500, fontSize: 13 }}
-                            >
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{task.name}</span>
-                              <Pencil size={11} className="edit-hint" style={{ color: C.muted, flexShrink: 0 }} />
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-2.5 px-3 max-w-[260px]">
+                            {isEditing('name') ? (
+                              <input
+                                autoFocus
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={() => saveEdit(task.id, 'name', editValue)}
+                                onKeyDown={onKeyDown('name')}
+                                className={cellInputClass}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'name', task.name)}
+                                title={task.name}
+                                className="editable-cell flex items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap text-white font-medium text-[13px]"
+                              >
+                                <span className="overflow-hidden text-ellipsis flex-1">{task.name}</span>
+                                <Pencil size={11} className="edit-hint text-white/40 shrink-0" />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Category — editable */}
                         {visibleCols.has('category') && (
-                        <td style={{ padding: '10px 14px', maxWidth: 150 }}>
-                          {isEditing('category') ? (
-                            <select autoFocus value={editValue} onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'category', e.target.value) }} onBlur={() => cancelEdit()} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, cursor: 'pointer' }}>
-                              <option value="">— None —</option>
-                              {CATEGORIES.map(c => <option key={c} value={c} style={{ backgroundColor: C.surface }}>{c}</option>)}
-                            </select>
-                          ) : (
-                            <span
-                              onClick={() => startEdit(task.id, 'category', task.category ?? '')}
-                              className="editable-cell"
-                              style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}
-                            >
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: task.category ? C.secondary : C.muted, fontSize: 12, flex: 1 }}>
-                                {task.category ?? '—'}
-                              </span>
-                              <Pencil size={10} className="edit-hint" style={{ color: C.muted, flexShrink: 0 }} />
-                            </span>
-                          )}
-                        </td>
-                        )}
-
-                        {/* Status — now editable */}
-                        {visibleCols.has('status') && (
-                        <td style={{ padding: '10px 14px' }}>
-                          {isEditing('status') ? (
-                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                          <td className="py-2.5 px-3 max-w-[150px]">
+                            {isEditing('category') ? (
                               <select
                                 autoFocus
                                 value={editValue}
-                                onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'status', e.target.value) }}
+                                onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'category', e.target.value) }}
                                 onBlur={() => cancelEdit()}
                                 onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }}
-                                style={{
-                                  backgroundColor: STATUS_CONFIG[editValue as MainTaskStatus]?.bg ?? C.elevated,
-                                  color:           STATUS_CONFIG[editValue as MainTaskStatus]?.text ?? C.text,
-                                  border: `1.5px solid ${C.primary}`,
-                                  borderRadius: 9999, fontSize: 11, fontWeight: 500,
-                                  padding: '3px 26px 3px 10px',
-                                  cursor: 'pointer', outline: 'none', appearance: 'none', fontFamily: 'inherit',
-                                }}
+                                className={`${cellInputClass} cursor-pointer`}
                               >
-                                {ALL_STATUSES.map(s => (
-                                  <option key={s} value={s} style={{ backgroundColor: C.surface, color: C.text }}>
-                                    {STATUS_CONFIG[s].label}
-                                  </option>
+                                <option value="">— None —</option>
+                                {CATEGORIES.map(c => (
+                                  <option key={c} value={c} style={{ backgroundColor: '#1e2d3d' }}>{c}</option>
                                 ))}
                               </select>
-                              <ChevronDown size={10} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: STATUS_CONFIG[editValue as MainTaskStatus]?.text ?? C.muted, pointerEvents: 'none' }} />
-                            </div>
-                          ) : (
-                            <span
-                              onClick={() => startEdit(task.id, 'status', task.status)}
-                              title="Click to change status"
-                              style={{ cursor: 'pointer' }}
-                            >
-                              <StatusBadge status={task.status} interactive />
-                            </span>
-                          )}
-                        </td>
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'category', task.category ?? '')}
+                                className="editable-cell flex items-center gap-1 overflow-hidden"
+                              >
+                                <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[12px] flex-1"
+                                  style={{ color: task.category ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)' }}>
+                                  {task.category ?? '—'}
+                                </span>
+                                <Pencil size={10} className="edit-hint text-white/40 shrink-0" />
+                              </span>
+                            )}
+                          </td>
+                        )}
+
+                        {/* Status — editable */}
+                        {visibleCols.has('status') && (
+                          <td className="py-2.5 px-3">
+                            {isEditing('status') ? (
+                              <div className="relative inline-block">
+                                <select
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'status', e.target.value) }}
+                                  onBlur={() => cancelEdit()}
+                                  onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }}
+                                  className="border-[1.5px] border-[#3f9cfb] rounded-full text-[11px] font-medium pl-2.5 pr-6 py-0.5 cursor-pointer outline-none font-[inherit]"
+                                  style={{
+                                    backgroundColor: STATUS_CONFIG[editValue as MainTaskStatus]?.badgeBg ?? '#1e2d3d',
+                                    color:           STATUS_CONFIG[editValue as MainTaskStatus]?.badgeText ?? '#ffffff',
+                                  }}
+                                >
+                                  {ALL_STATUSES.map(s => (
+                                    <option key={s} value={s} style={{ backgroundColor: '#1e2d3d', color: '#ffffff' }}>
+                                      {STATUS_CONFIG[s].label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <ChevronDown
+                                  size={10}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+                                  style={{ color: STATUS_CONFIG[editValue as MainTaskStatus]?.badgeText ?? 'rgba(255,255,255,0.4)' }}
+                                />
+                              </div>
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'status', task.status)}
+                                title="Click to change status"
+                                className="cursor-pointer"
+                              >
+                                <StatusBadge status={task.status} interactive />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Priority — editable */}
                         {visibleCols.has('priority') && (
-                        <td style={{ padding: '10px 14px' }}>
-                          {isEditing('priority') ? (
-                            <select autoFocus value={editValue} onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'priority', e.target.value) }} onBlur={() => cancelEdit()} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, cursor: 'pointer', width: 'auto' }}>
-                              {PRIORITIES.map(p => <option key={p} value={p} style={{ backgroundColor: C.surface }}>{PRIORITY_CONFIG[p].label}</option>)}
-                            </select>
-                          ) : (
-                            <span onClick={() => startEdit(task.id, 'priority', task.priority)} title="Click to edit" style={{ cursor: 'pointer' }}>
-                              <PriorityFlag priority={task.priority} />
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-2.5 px-3">
+                            {isEditing('priority') ? (
+                              <select
+                                autoFocus
+                                value={editValue}
+                                onChange={e => { setEditValue(e.target.value); saveEdit(task.id, 'priority', e.target.value) }}
+                                onBlur={() => cancelEdit()}
+                                onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }}
+                                className={`${cellInputClass} cursor-pointer w-auto`}
+                              >
+                                {PRIORITIES.map(p => (
+                                  <option key={p} value={p} style={{ backgroundColor: '#1e2d3d' }}>{PRIORITY_CONFIG[p].label}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'priority', task.priority)}
+                                title="Click to edit"
+                                className="cursor-pointer"
+                              >
+                                <PriorityBadge priority={task.priority} />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Taken At — editable */}
                         {visibleCols.has('taken_at') && (
-                        <td style={{ padding: '10px 14px' }}>
-                          {isEditing('taken_at') ? (
-                            <input type="datetime-local" autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'taken_at', editValue)} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, fontSize: 12 }} />
-                          ) : (
-                            <span onClick={() => startEdit(task.id, 'taken_at', toInputDate(task.taken_at))} className="editable-cell" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ whiteSpace: 'nowrap', color: task.taken_at ? C.secondary : C.muted, fontSize: 12 }}>{formatDate(task.taken_at)}</span>
-                              <Pencil size={10} className="edit-hint" style={{ color: C.muted }} />
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-2.5 px-3">
+                            {isEditing('taken_at') ? (
+                              <input
+                                type="datetime-local"
+                                autoFocus
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={() => saveEdit(task.id, 'taken_at', editValue)}
+                                onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }}
+                                className={`${cellInputClass} text-[12px]`}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'taken_at', toInputDate(task.taken_at))}
+                                className="editable-cell flex items-center gap-1"
+                              >
+                                <span className="whitespace-nowrap text-[12px]"
+                                  style={{ color: task.taken_at ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)' }}>
+                                  {formatDate(task.taken_at)}
+                                </span>
+                                <Pencil size={10} className="edit-hint text-white/40" />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Deadline — editable */}
                         {visibleCols.has('deadline') && (
-                        <td style={{ padding: '10px 14px' }}>
-                          {isEditing('deadline') ? (
-                            <input type="datetime-local" autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'deadline', editValue)} onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }} style={{ ...cellInput, fontSize: 12 }} />
-                          ) : (
-                            <span onClick={() => startEdit(task.id, 'deadline', toInputDate(task.deadline))} className="editable-cell" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ whiteSpace: 'nowrap', color: task.deadline ? C.secondary : C.muted, fontSize: 12 }}>{formatDate(task.deadline)}</span>
-                              <Pencil size={10} className="edit-hint" style={{ color: C.muted }} />
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-2.5 px-3">
+                            {isEditing('deadline') ? (
+                              <input
+                                type="datetime-local"
+                                autoFocus
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={() => saveEdit(task.id, 'deadline', editValue)}
+                                onKeyDown={e => { if (e.key === 'Escape') cancelEdit() }}
+                                className={`${cellInputClass} text-[12px]`}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'deadline', toInputDate(task.deadline))}
+                                className="editable-cell flex items-center gap-1"
+                              >
+                                <span className="whitespace-nowrap text-[12px]"
+                                  style={{ color: task.deadline ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)' }}>
+                                  {formatDate(task.deadline)}
+                                </span>
+                                <Pencil size={10} className="edit-hint text-white/40" />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Owner — editable */}
                         {visibleCols.has('task_owner') && (
-                        <td style={{ padding: '10px 14px', maxWidth: 120 }}>
-                          {isEditing('task_owner') ? (
-                            <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'task_owner', editValue)} onKeyDown={onKeyDown('task_owner')} style={cellInput} />
-                          ) : (
-                            <span onClick={() => startEdit(task.id, 'task_owner', task.task_owner ?? '')} style={{ cursor: 'pointer' }}>
-                              <OwnerAvatar value={task.task_owner} />
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-2.5 px-3 max-w-[120px]">
+                            {isEditing('task_owner') ? (
+                              <input
+                                autoFocus
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={() => saveEdit(task.id, 'task_owner', editValue)}
+                                onKeyDown={onKeyDown('task_owner')}
+                                className={cellInputClass}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'task_owner', task.task_owner ?? '')}
+                                className="cursor-pointer"
+                              >
+                                <OwnerAvatar value={task.task_owner} />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Progress — read-only */}
                         {visibleCols.has('progress') && (
-                        <td style={{ padding: '10px 14px', minWidth: 140 }}>
-                          <ProgressBar value={task.progress} />
-                        </td>
+                          <td className="py-2.5 px-3 min-w-[140px]">
+                            <ProgressBar value={task.progress} />
+                          </td>
                         )}
 
                         {/* Time Spent — read-only */}
                         {visibleCols.has('time_spent') && (
-                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
-                          <span style={{ fontSize: 12, color: task.time_spent ? C.secondary : C.muted, fontVariantNumeric: 'tabular-nums' }}>
-                            {formatTime(task.time_spent)}
-                          </span>
-                        </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span
+                              className="text-[12px] tabular-nums"
+                              style={{ color: task.time_spent ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)' }}
+                            >
+                              {formatTime(task.time_spent)}
+                            </span>
+                          </td>
                         )}
 
                         {/* Blocked By — editable */}
                         {visibleCols.has('blocked_by') && (
-                        <td style={{ padding: '10px 14px', maxWidth: 110 }}>
-                          {isEditing('blocked_by') ? (
-                            <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'blocked_by', editValue)} onKeyDown={onKeyDown('blocked_by')} style={cellInput} />
-                          ) : (
-                            <span onClick={() => startEdit(task.id, 'blocked_by', task.blocked_by ?? '')} className="editable-cell" style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: task.blocked_by ? '#F87171' : C.muted, fontSize: 12, flex: 1 }}>{task.blocked_by ?? '—'}</span>
-                              <Pencil size={10} className="edit-hint" style={{ color: C.muted, flexShrink: 0 }} />
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-2.5 px-3 max-w-[110px]">
+                            {isEditing('blocked_by') ? (
+                              <input
+                                autoFocus
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={() => saveEdit(task.id, 'blocked_by', editValue)}
+                                onKeyDown={onKeyDown('blocked_by')}
+                                className={cellInputClass}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'blocked_by', task.blocked_by ?? '')}
+                                className="editable-cell flex items-center gap-1 overflow-hidden"
+                              >
+                                <span
+                                  className="overflow-hidden text-ellipsis whitespace-nowrap text-[12px] flex-1"
+                                  style={{ color: task.blocked_by ? '#f87171' : 'rgba(255,255,255,0.3)' }}
+                                >
+                                  {task.blocked_by ?? '—'}
+                                </span>
+                                <Pencil size={10} className="edit-hint text-white/40 shrink-0" />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Note — editable */}
                         {visibleCols.has('note') && (
-                        <td style={{ padding: '10px 14px', maxWidth: 150 }}>
-                          {isEditing('note') ? (
-                            <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={() => saveEdit(task.id, 'note', editValue)} onKeyDown={onKeyDown('note')} style={cellInput} />
-                          ) : (
-                            <span onClick={() => startEdit(task.id, 'note', task.note ?? '')} className="editable-cell" style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: task.note ? C.secondary : C.muted, fontSize: 12, flex: 1 }}>{task.note ?? '—'}</span>
-                              <Pencil size={10} className="edit-hint" style={{ color: C.muted, flexShrink: 0 }} />
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-2.5 px-3 max-w-[150px]">
+                            {isEditing('note') ? (
+                              <input
+                                autoFocus
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={() => saveEdit(task.id, 'note', editValue)}
+                                onKeyDown={onKeyDown('note')}
+                                className={cellInputClass}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(task.id, 'note', task.note ?? '')}
+                                className="editable-cell flex items-center gap-1 overflow-hidden"
+                              >
+                                <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[12px] flex-1"
+                                  style={{ color: task.note ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)' }}>
+                                  {task.note ?? '—'}
+                                </span>
+                                <Pencil size={10} className="edit-hint text-white/40 shrink-0" />
+                              </span>
+                            )}
+                          </td>
                         )}
 
                         {/* Delete */}
-                        <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                          <button
-                            onClick={() => askDelete(task.id, task.name)}
-                            disabled={deletingId === task.id}
-                            title="Delete task"
-                            style={{
-                              background: 'none', border: 'none',
-                              cursor: deletingId === task.id ? 'not-allowed' : 'pointer',
-                              padding: 5, borderRadius: 5, color: C.muted,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              transition: 'color 0.12s, background-color 0.12s',
-                            }}
-                            onMouseEnter={e => {
-                              if (deletingId !== task.id) {
-                                (e.currentTarget as HTMLButtonElement).style.color = C.danger
-                                ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.1)'
-                              }
-                            }}
-                            onMouseLeave={e => {
-                              if (deletingId !== task.id) {
-                                (e.currentTarget as HTMLButtonElement).style.color = C.muted
-                                ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-                              }
-                            }}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </td>
+                        {visibleCols.has('_delete') && (
+                          <td className="py-2.5 px-2 text-center">
+                            <button
+                              onClick={() => askDelete(task.id, task.name)}
+                              disabled={deletingId === task.id}
+                              title="Delete task"
+                              className="bg-transparent border-none text-white/40 hover:text-[#f87171] hover:bg-[#450a0a]/40 p-1 rounded flex items-center justify-center transition-colors duration-150"
+                              style={{ cursor: deletingId === task.id ? 'not-allowed' : 'pointer' }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        )}
 
                       </tr>
                     )

@@ -1,25 +1,26 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --color-app-bg:          #1A1D23;
-  --color-sidebar-bg:      #1E2028;
-  --color-surface:         #2A2D35;
-  --color-surface-hover:   #2E323A;
-  --color-elevated:        #31353F;
-  --color-border:          #363940;
-  --color-border-hover:    #4A4F5A;
-  --color-primary:         #7B68EE;
-  --color-primary-hover:   #6C5CE7;
-  --color-text:            #E2E4E9;
-  --color-secondary:       #9BA0AB;
-  --color-muted:           #6B7280;
+  --font-sans: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --color-app-bg:          #18232d;
+  --color-sidebar-bg:      #111b24;
+  --color-surface:         #1e2d3d;
+  --color-surface-hover:   #243445;
+  --color-elevated:        #243445;
+  --color-border:          #2a3f52;
+  --color-border-hover:    #3a5168;
+  --color-primary:         #3f9cfb;
+  --color-primary-hover:   #2d8ae8;
+  --color-text:            #ffffff;
+  --color-secondary:       rgba(255,255,255,0.6);
+  --color-muted:           rgba(255,255,255,0.4);
+  --color-progress:        #4ade80;
 }
 
 html, body {
-  background-color: #1A1D23;
-  color: #E2E4E9;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #18232d;
+  color: #ffffff;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -55,7 +56,7 @@ select {
 }
 
 @keyframes rowFlash {
-  0%   { background-color: rgba(123, 104, 238, 0.22); }
+  0%   { background-color: rgba(63, 156, 251, 0.18); }
   100% { background-color: transparent; }
 }
 
@@ -65,7 +66,7 @@ select {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #2A2D35 25%, #31353F 50%, #2A2D35 75%);
+  background: linear-gradient(90deg, #1e2d3d 25%, #243445 50%, #1e2d3d 75%);
   background-size: 800px 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -84,7 +85,7 @@ select {
   cursor: text;
 }
 .editable-cell:hover {
-  background-color: rgba(123, 104, 238, 0.06);
+  background-color: rgba(63, 156, 251, 0.08);
   border-radius: 4px;
 }
 .editable-cell .edit-hint {
@@ -98,6 +99,6 @@ select {
 /* Focus ring for inputs */
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: #7B68EE !important;
-  box-shadow: 0 0 0 3px rgba(123, 104, 238, 0.18) !important;
+  border-color: #3f9cfb !important;
+  box-shadow: 0 0 0 3px rgba(63, 156, 251, 0.18) !important;
 }

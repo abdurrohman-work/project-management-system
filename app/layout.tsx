@@ -17,9 +17,18 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+        <style>{`
+          @font-face {
+            font-family: 'Gilroy';
+            src: local('Gilroy'), local('Gilroy-Regular');
+            font-weight: 400;
+            font-style: normal;
+          }
+          body { font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        `}</style>
       </head>
-      <body className="flex min-h-screen" style={{ backgroundColor: '#1A1D23' }}>
+      <body className="flex min-h-screen" style={{ backgroundColor: '#18232d' }}>
         <Sidebar />
         <main className="flex-1 min-h-screen" style={{ marginLeft: 250 }}>
           {children}

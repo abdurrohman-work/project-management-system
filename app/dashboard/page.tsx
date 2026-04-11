@@ -290,13 +290,24 @@ export default function DashboardPage() {
 
   // ── Listen for AI agent task creation events ────────────────────────────
   useEffect(() => {
-    function handler(e: Event) {
+    async function handler(e: Event) {
       const task = (e as CustomEvent).detail
       if (!task?.id) return
+
+      // Optimistically add the task if we have it
       setTasks(prev => {
         if (prev.some(t => t.id === task.id)) return prev
         return [task, ...prev]
       })
+
+      // Also re-fetch the full list as a safety net (handles partial data,
+      // stale state, or cases where the task was already in DB but not in memory)
+      try {
+        const res  = await fetch('/api/main-tasks')
+        const json = await res.json()
+        if (json.success) setTasks(json.data)
+      } catch { /* keep optimistic state on network failure */ }
+
       setAiNewTaskId(task.id)
       setTimeout(() => setAiNewTaskId(null), 1800)
     }

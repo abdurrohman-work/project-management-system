@@ -313,7 +313,7 @@ export type Database = {
         | "blocked"
         | "stopped"
       task_priority: "low" | "medium" | "high" | "critical"
-      workload_status: "not_started" | "in_progress" | "done" | "halted"
+      workload_status: "not_started" | "in_progress" | "done" | "stopped" | "blocked"
     }
     CompositeTypes: {
       [_ in never]: never

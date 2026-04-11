@@ -83,6 +83,8 @@ Rules:
 6. Keep responses concise — max 2-3 sentences
 7. Return JSON action at the END of your response ONLY when the user has confirmed. Format:
    {"action": "ACTION_NAME", "data": {...}}
+   CRITICAL: Return ONLY ONE JSON block per response. Never emit two action JSON blocks.
+   If you need to do multiple things (e.g. create task + subtask), do them one at a time across turns.
 8. After executing an action, offer a follow-up: "Sprint task qo'shasizmi?" or "Anything else?"
 9. CRITICAL — For CREATE_TASK, the "data" object MUST include EVERY field that was discussed or inferred:
    - name: always required
@@ -102,17 +104,50 @@ Sprint task status values: not_started, in_progress, done, partly_completed, blo
 // ─── Action JSON extraction ───────────────────────────────────────────────────
 
 /**
- * Finds and parses the trailing JSON action block from the Groq reply text.
- * Uses a greedy search for the last `{...}` block containing an "action" key.
+ * Finds the index of the first JSON action block in the text.
+ * Searches for `{"action"` or `{ "action"` (with optional whitespace).
+ * Returns -1 if not found.
+ */
+function findActionStart(text: string): number {
+  // Possible opening patterns the model might emit
+  const patterns = ['{"action"', '{ "action"', '{\n"action"', '{\n  "action"']
+  let min = -1
+  for (const p of patterns) {
+    const idx = text.indexOf(p)
+    if (idx !== -1 && (min === -1 || idx < min)) min = idx
+  }
+  return min
+}
+
+/**
+ * Walk the string from `start` to find the matching closing `}` at depth 0.
+ * Returns the exclusive end index (i.e., position after the `}`), or -1.
+ */
+function findJsonEnd(text: string, start: number): number {
+  let depth = 0
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++
+    else if (text[i] === '}') {
+      depth--
+      if (depth === 0) return i + 1
+    }
+  }
+  return -1
+}
+
+/**
+ * Parses the FIRST valid JSON action block from the model's reply.
+ * Robust against models emitting multiple consecutive `{"action":...}` blocks.
  */
 function extractActionJSON(text: string): ActionPayload | null {
-  // Match the last JSON-like block in the response that contains an "action" key
-  const regex = /\{[\s\S]*"action"\s*:\s*"[A-Z_]+"[\s\S]*\}(?=[^}]*$)/
-  const match = text.match(regex)
-  if (!match) return null
+  const start = findActionStart(text)
+  if (start === -1) return null
+
+  const end = findJsonEnd(text, start)
+  if (end === -1) return null
 
   try {
-    const parsed = JSON.parse(match[0]) as Record<string, unknown>
+    const parsed = JSON.parse(text.slice(start, end)) as Record<string, unknown>
     if (
       typeof parsed.action === 'string' &&
       parsed.action.length > 0 &&
@@ -123,18 +158,18 @@ function extractActionJSON(text: string): ActionPayload | null {
     }
     return null
   } catch {
-    // Malformed JSON — silently ignore
     return null
   }
 }
 
 /**
- * Removes the trailing JSON action block from the text that will be shown
- * to the user, so they only see the conversational reply.
+ * Removes everything from the first JSON action block onwards so the user
+ * only sees the conversational part of the reply.
  */
 function stripActionJSON(text: string): string {
-  const regex = /\{[\s\S]*"action"\s*:\s*"[A-Z_]+"[\s\S]*\}(?=[^}]*$)/
-  return text.replace(regex, '').trim()
+  const start = findActionStart(text)
+  if (start === -1) return text.trim()
+  return text.slice(0, start).trim()
 }
 
 // ─── Action Execution ─────────────────────────────────────────────────────────

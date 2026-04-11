@@ -14,12 +14,31 @@ import { ConfirmDialog }           from '@/app/components/ConfirmDialog'
 // ─── AI Sidebar types ─────────────────────────────────────────────────────────
 
 type ParsedTask = {
-  name:       string
-  category:   string | null
-  priority:   TaskPriority
-  task_owner: string | null
-  deadline:   string | null
-  note:       string | null
+  name:              string
+  category:          string | null
+  priority:          TaskPriority
+  task_owner:        string | null
+  deadline:          string | null
+  sprint_task_names: string[]
+}
+
+// ─── AI Sidebar constants ─────────────────────────────────────────────────────
+
+const PLACEHOLDER_HINTS = [
+  'e.g. "Set up CI/CD pipeline, high priority, assign to devops@company.com, due next Friday"',
+  'e.g. "Срочно исправить баг с авторизацией — Азиз, до конца недели"',
+  'e.g. "Kurs platformasini yangilash — yuqori ustuvorlik, Sherzod mas\'ul"',
+  'e.g. "Fix payment gateway timeout, critical, billing team, deadline Apr 25"',
+  'e.g. "Yig\'ish va test qilish — oddiy ustuvorlik, sprint subtasks: Backend API, Frontend UI"',
+]
+
+function useRotatingPlaceholder(hints: string[], intervalMs = 4000): string {
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setIdx(i => (i + 1) % hints.length), intervalMs)
+    return () => clearInterval(t)
+  }, [hints.length, intervalMs])
+  return hints[idx]
 }
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -281,6 +300,7 @@ export default function DashboardPage() {
   const [aiPreview,    setAiPreview]    = useState<ParsedTask | null>(null)
   const [aiApproving,  setAiApproving]  = useState(false)
   const [aiError,      setAiError]      = useState<string | null>(null)
+  const [aiNewTaskId,  setAiNewTaskId]  = useState<string | null>(null)
   const [listening,    setListening]    = useState(false)
   const [interimText,  setInterimText]  = useState('')
   const recognitionRef  = useRef<{ stop: () => void } | null>(null)
@@ -288,6 +308,8 @@ export default function DashboardPage() {
   const analyserRef     = useRef<AnalyserNode | null>(null)
   const animFrameRef    = useRef<number>(0)
   const audioCtxRef     = useRef<AudioContext | null>(null)
+
+  const placeholderHint = useRotatingPlaceholder(PLACEHOLDER_HINTS)
 
   // ── Toast ────────────────────────────────────────────────────────────────
   const { toasts, toast, dismiss } = useToast()
@@ -435,7 +457,7 @@ export default function DashboardPage() {
     setAiError(null)
     setAiPreview(null)
     try {
-      const res  = await fetch('/api/ai/parse-task', {
+      const res  = await fetch('/api/ai/extract-tasks', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: aiInput }),
       })
@@ -448,11 +470,14 @@ export default function DashboardPage() {
     setAiParsing(false)
   }
 
-  // ── AI: approve preview → create task ────────────────────────────────────
+  // ── AI: approve preview → create main task + sprint subtasks ─────────────
   async function aiApprove() {
     if (!aiPreview) return
     setAiApproving(true)
-    const res  = await fetch('/api/main-tasks', {
+    setAiError(null)
+
+    // 1. Create main task
+    const taskRes  = await fetch('/api/main-tasks', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name:       aiPreview.name,
@@ -460,21 +485,55 @@ export default function DashboardPage() {
         priority:   aiPreview.priority,
         task_owner: aiPreview.task_owner,
         deadline:   aiPreview.deadline,
-        note:       aiPreview.note,
       }),
     })
-    const json = await res.json()
-    setAiApproving(false)
-    if (json.success) {
-      setTasks(prev => [json.data, ...prev])
-      setNewTaskId(json.data.id)
-      setTimeout(() => setNewTaskId(null), 1400)
-      toast(`"${json.data.name}" created via AI`)
-      setAiPreview(null)
-      setAiInput('')
-    } else {
-      setAiError(json.error ?? 'Failed to create task.')
+    const taskJson = await taskRes.json()
+    if (!taskJson.success) {
+      setAiApproving(false)
+      setAiError(taskJson.error ?? 'Failed to create task.')
+      return
     }
+
+    const newTask = taskJson.data
+    setTasks(prev => [newTask, ...prev])
+    setAiNewTaskId(newTask.id)
+    setTimeout(() => setAiNewTaskId(null), 1800)
+
+    // 2. If sprint subtasks provided, fetch active sprint and create them
+    const names = aiPreview.sprint_task_names.filter(n => n.trim())
+    if (names.length > 0) {
+      try {
+        const sprintRes  = await fetch('/api/sprints/active')
+        const sprintJson = await sprintRes.json()
+        const sprint     = sprintJson?.data?.sprint
+        if (sprint?.id) {
+          await Promise.all(
+            names.map(name =>
+              fetch('/api/sprint-tasks', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  main_task_id: newTask.id,
+                  sprint_id:    sprint.id,
+                  name:         name.trim(),
+                  priority:     aiPreview.priority,
+                }),
+              }),
+            ),
+          )
+          toast(`"${newTask.name}" + ${names.length} sprint task${names.length > 1 ? 's' : ''} added`)
+        } else {
+          toast(`"${newTask.name}" created (no active sprint for subtasks)`)
+        }
+      } catch {
+        toast(`"${newTask.name}" created (sprint tasks failed)`, 'error')
+      }
+    } else {
+      toast(`"${newTask.name}" added to Dashboard`)
+    }
+
+    setAiApproving(false)
+    setAiPreview(null)
+    setAiInput('')
   }
 
   // ── AI: waveform animation ───────────────────────────────────────────────
@@ -539,7 +598,8 @@ export default function DashboardPage() {
     rec.maxAlternatives = 1
     rec.continuous      = true
 
-    rec.onresult = (e: SpeechRecognitionEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
       let interim = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript
@@ -1049,20 +1109,21 @@ export default function DashboardPage() {
                         if (e.key === 'Escape') cancelEdit()
                       }
 
-                    const isNew = newTaskId === task.id
+                    const isNew   = newTaskId  === task.id
+                    const isAiNew = aiNewTaskId === task.id
 
                     return (
                       <tr
                         key={task.id}
-                        className={isNew ? 'row-flash' : undefined}
+                        className={isAiNew ? 'row-flash-green' : isNew ? 'row-flash' : undefined}
                         style={{
                           backgroundColor: C.surface,
                           borderBottom:    `1px solid ${C.border}`,
                           transition:      'background-color 0.1s',
                           opacity:         deletingId === task.id ? 0.4 : 1,
                         }}
-                        onMouseEnter={e => { if (!isNew) e.currentTarget.style.backgroundColor = C.surfaceHover }}
-                        onMouseLeave={e => { if (!isNew) e.currentTarget.style.backgroundColor = C.surface }}
+                        onMouseEnter={e => { if (!isNew && !isAiNew) e.currentTarget.style.backgroundColor = C.surfaceHover }}
+                        onMouseLeave={e => { if (!isNew && !isAiNew) e.currentTarget.style.backgroundColor = C.surface }}
                       >
 
                         {/* ID */}
@@ -1303,10 +1364,10 @@ export default function DashboardPage() {
       {aiOpen && (
         <div
           style={{
-            width:           340,
+            width:           360,
             flexShrink:      0,
-            borderLeft:      `1px solid ${C.border}`,
-            backgroundColor: C.sidebar,
+            borderLeft:      `1px solid #1e3048`,
+            backgroundColor: '#1a2840',
             display:         'flex',
             flexDirection:   'column',
             height:          '100vh',
@@ -1317,58 +1378,62 @@ export default function DashboardPage() {
         >
           {/* Sidebar header */}
           <div style={{
-            height: 56, borderBottom: `1px solid ${C.border}`,
+            height: 56, borderBottom: `1px solid #1e3048`,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '0 16px', flexShrink: 0,
-            position: 'sticky', top: 0, backgroundColor: C.sidebar, zIndex: 10,
+            position: 'sticky', top: 0, backgroundColor: '#1a2840', zIndex: 10,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={14} style={{ color: C.primary }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>AI Task Assistant</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <Sparkles size={13} style={{ color: '#3f9cfb' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>AI Task Assistant</span>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, color: '#3f9cfb',
+                  backgroundColor: 'rgba(63,156,251,0.12)', border: '1px solid rgba(63,156,251,0.25)',
+                  borderRadius: 4, padding: '1px 6px', letterSpacing: '0.03em',
+                }}>
+                  Groq
+                </span>
+              </div>
+              <span style={{ fontSize: 11, color: '#6b8aaa', marginLeft: 20 }}>
+                Describe in any language — EN · RU · UZ
+              </span>
             </div>
             <button
               onClick={() => setAiOpen(false)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted, padding: 4, borderRadius: 5, display: 'flex' }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a6580', padding: 4, borderRadius: 5, display: 'flex' }}
               onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = C.text}
-              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = C.muted}
+              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#4a6580'}
             >
               <X size={15} />
             </button>
           </div>
 
-          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-
-            {/* Instruction hint */}
-            <p style={{ margin: 0, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-              Describe a task in plain language — in English, Russian, or Uzbek. The AI will extract the details for your review before adding it to the table.
-            </p>
+          <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
 
             {/* Text input + mic */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#6b8aaa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Task description
               </span>
 
               {/* Waveform + interim transcript — visible only while listening */}
               {listening && (
                 <div style={{
-                  backgroundColor: C.elevated,
-                  border: `1px solid ${C.primary}`,
+                  backgroundColor: '#12202e',
+                  border: `1px solid #3f9cfb`,
                   borderRadius: 8,
                   overflow: 'hidden',
                 }}>
-                  {/* Waveform canvas */}
                   <canvas
                     ref={canvasRef}
-                    width={308}
+                    width={328}
                     height={52}
                     style={{ display: 'block', width: '100%', height: 52 }}
                   />
-                  {/* Live transcript */}
                   <div style={{
-                    minHeight: 28,
-                    padding: '4px 10px 8px',
-                    borderTop: `1px solid ${C.border}`,
+                    minHeight: 28, padding: '4px 10px 8px',
+                    borderTop: `1px solid #1e3048`,
                     display: 'flex', alignItems: 'center', gap: 7,
                   }}>
                     <span style={{
@@ -1376,7 +1441,7 @@ export default function DashboardPage() {
                       backgroundColor: '#F87171', animation: 'pulse 1s infinite',
                     }} />
                     <span style={{
-                      fontSize: 12, color: interimText ? C.text : C.muted,
+                      fontSize: 12, color: interimText ? C.text : '#4a6580',
                       fontStyle: interimText ? 'normal' : 'italic', lineHeight: 1.4,
                     }}>
                       {interimText || 'Listening — speak now…'}
@@ -1390,39 +1455,41 @@ export default function DashboardPage() {
                   value={aiInput}
                   onChange={e => setAiInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) aiParse() }}
-                  placeholder='e.g. "Set up CI/CD pipeline, high priority, assign to devops@company.com, deadline next Friday"'
-                  rows={4}
+                  placeholder={placeholderHint}
+                  rows={5}
                   style={{
                     width: '100%', boxSizing: 'border-box',
-                    backgroundColor: C.elevated,
-                    border: `1px solid ${listening ? C.primary : C.border}`,
-                    borderRadius: 8, color: C.text, fontSize: 12, lineHeight: 1.5,
+                    backgroundColor: '#12202e',
+                    border: `1px solid ${listening ? '#3f9cfb' : '#1e3048'}`,
+                    borderRadius: 8, color: C.text, fontSize: 12, lineHeight: 1.6,
                     padding: '10px 40px 10px 12px',
                     outline: 'none', resize: 'vertical', fontFamily: 'inherit',
                     transition: 'border-color 0.15s',
                   }}
+                  onFocus={e  => { if (!listening) e.currentTarget.style.borderColor = '#3f9cfb' }}
+                  onBlur={e   => { if (!listening) e.currentTarget.style.borderColor = '#1e3048' }}
                 />
                 {/* Mic button */}
                 <button
                   onClick={toggleVoice}
-                  title={listening ? 'Stop recording' : 'Record voice (auto language)'}
+                  title={listening ? 'Stop recording' : 'Voice input (auto language)'}
                   style={{
                     position: 'absolute', bottom: 8, right: 8,
                     width: 28, height: 28, borderRadius: 6, border: 'none',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer',
-                    backgroundColor: listening ? 'rgba(239,68,68,0.18)' : C.surface,
-                    color: listening ? '#F87171' : C.muted,
+                    backgroundColor: listening ? 'rgba(239,68,68,0.18)' : 'rgba(30,48,72,0.8)',
+                    color: listening ? '#F87171' : '#4a6580',
                     transition: 'all 0.15s',
                   }}
-                  onMouseEnter={e => { if (!listening) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.surfaceHover; (e.currentTarget as HTMLButtonElement).style.color = C.text } }}
-                  onMouseLeave={e => { if (!listening) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.surface;      (e.currentTarget as HTMLButtonElement).style.color = C.muted } }}
+                  onMouseEnter={e => { if (!listening) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#1e3048'; (e.currentTarget as HTMLButtonElement).style.color = C.text } }}
+                  onMouseLeave={e => { if (!listening) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(30,48,72,0.8)'; (e.currentTarget as HTMLButtonElement).style.color = '#4a6580' } }}
                 >
                   {listening ? <MicOff size={13} /> : <Mic size={13} />}
                 </button>
               </div>
-              <p style={{ margin: 0, fontSize: 11, color: C.muted }}>
-                Tip: Ctrl + Enter to parse · Voice auto-detects language
+              <p style={{ margin: 0, fontSize: 11, color: '#4a6580' }}>
+                Ctrl + Enter to parse · Voice auto-detects language
               </p>
             </div>
 
@@ -1432,25 +1499,26 @@ export default function DashboardPage() {
               disabled={aiParsing || !aiInput.trim()}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-                backgroundColor: C.primary, color: '#fff', border: 'none',
-                borderRadius: 8, padding: '9px 0', fontSize: 13, fontWeight: 600,
+                backgroundColor: '#3f9cfb', color: '#fff', border: 'none',
+                borderRadius: 8, padding: '10px 0', fontSize: 13, fontWeight: 600,
                 cursor: aiParsing || !aiInput.trim() ? 'not-allowed' : 'pointer',
-                opacity: !aiInput.trim() ? 0.5 : 1,
+                opacity: !aiInput.trim() ? 0.45 : 1,
                 fontFamily: 'inherit', transition: 'background-color 0.12s, opacity 0.12s',
+                boxShadow: aiInput.trim() ? '0 2px 12px rgba(63,156,251,0.28)' : 'none',
               }}
-              onMouseEnter={e => { if (!aiParsing && aiInput.trim()) (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.primaryHover }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.primary }}
+              onMouseEnter={e => { if (!aiParsing && aiInput.trim()) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#2d88e8' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#3f9cfb' }}
             >
               {aiParsing
-                ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Parsing…</>
-                : <><Sparkles size={13} /> Parse Task</>
+                ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Extracting…</>
+                : <><Sparkles size={13} /> Extract Task</>
               }
             </button>
 
             {/* Error */}
             {aiError && (
               <div style={{
-                backgroundColor: 'rgba(239,68,68,0.08)', border: `1px solid rgba(239,68,68,0.25)`,
+                backgroundColor: 'rgba(239,68,68,0.08)', border: `1px solid rgba(239,68,68,0.22)`,
                 borderRadius: 8, padding: '10px 12px',
                 display: 'flex', alignItems: 'flex-start', gap: 8,
               }}>
@@ -1459,78 +1527,189 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Task preview */}
+            {/* Task preview card */}
             {aiPreview && (
               <div style={{
-                backgroundColor: C.surface, border: `1px solid ${C.border}`,
+                backgroundColor: '#12202e', border: `1px solid #2a3f52`,
                 borderRadius: 10, overflow: 'hidden',
               }}>
                 {/* Preview header */}
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '10px 14px', borderBottom: `1px solid ${C.border}`,
-                  backgroundColor: 'rgba(123,104,238,0.06)',
+                  padding: '10px 14px', borderBottom: `1px solid #1e3048`,
+                  backgroundColor: 'rgba(63,156,251,0.06)',
                 }}>
                   <CheckCircle2 size={13} style={{ color: '#4ADE80' }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Parsed Preview</span>
-                  <span style={{ fontSize: 11, color: C.muted, marginLeft: 'auto' }}>Review before approving</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Task Preview</span>
+                  <span style={{ fontSize: 11, color: '#4a6580', marginLeft: 'auto' }}>Edit before adding</span>
                 </div>
 
                 {/* Fields */}
                 <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {(
-                    [
-                      { label: 'Name',     value: aiPreview.name,       key: 'name'       },
-                      { label: 'Category', value: aiPreview.category,   key: 'category'   },
-                      { label: 'Priority', value: aiPreview.priority,   key: 'priority'   },
-                      { label: 'Owner',    value: aiPreview.task_owner, key: 'task_owner' },
-                      { label: 'Deadline', value: aiPreview.deadline,   key: 'deadline'   },
-                      { label: 'Note',     value: aiPreview.note,       key: 'note'       },
-                    ] as { label: string; value: string | null; key: keyof ParsedTask }[]
-                  ).map(({ label, value, key }) => (
-                    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        {label}
-                      </span>
-                      <input
-                        value={value ?? ''}
-                        onChange={e => setAiPreview(p => p ? { ...p, [key]: e.target.value || null } : p)}
-                        style={{
-                          backgroundColor: C.elevated, border: `1px solid ${C.border}`,
-                          borderRadius: 6, color: value ? C.text : C.muted,
-                          fontSize: 12, padding: '5px 8px', outline: 'none',
-                          fontFamily: 'inherit', transition: 'border-color 0.15s', width: '100%', boxSizing: 'border-box',
-                        }}
-                        onFocus={e  => (e.currentTarget.style.borderColor = C.primary)}
-                        onBlur={e   => (e.currentTarget.style.borderColor = C.border)}
-                        placeholder="—"
-                      />
+
+                  {/* Name */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#4a6580', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Name *</span>
+                    <input
+                      value={aiPreview.name}
+                      onChange={e => setAiPreview(p => p ? { ...p, name: e.target.value } : p)}
+                      style={{
+                        backgroundColor: '#1a2840', border: `1px solid #2a3f52`,
+                        borderRadius: 6, color: C.text, fontSize: 12, padding: '6px 9px',
+                        outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
+                        transition: 'border-color 0.15s',
+                      }}
+                      onFocus={e => (e.currentTarget.style.borderColor = '#3f9cfb')}
+                      onBlur={e  => (e.currentTarget.style.borderColor = '#2a3f52')}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {/* Category */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#4a6580', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</span>
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={aiPreview.category ?? ''}
+                          onChange={e => setAiPreview(p => p ? { ...p, category: e.target.value || null } : p)}
+                          style={{
+                            backgroundColor: '#1a2840', border: `1px solid #2a3f52`,
+                            borderRadius: 6, color: aiPreview.category ? C.text : '#4a6580',
+                            fontSize: 11, padding: '5px 24px 5px 8px',
+                            outline: 'none', fontFamily: 'inherit', width: '100%',
+                            appearance: 'none', cursor: 'pointer',
+                          }}
+                        >
+                          <option value="">— None —</option>
+                          {CATEGORIES.map(c => <option key={c} value={c} style={{ backgroundColor: '#1a2840' }}>{c}</option>)}
+                        </select>
+                        <ChevronDown size={10} style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', color: '#4a6580', pointerEvents: 'none' }} />
+                      </div>
                     </div>
-                  ))}
+
+                    {/* Priority */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#4a6580', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</span>
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={aiPreview.priority}
+                          onChange={e => setAiPreview(p => p ? { ...p, priority: e.target.value as TaskPriority } : p)}
+                          style={{
+                            backgroundColor: '#1a2840', border: `1px solid #2a3f52`,
+                            borderRadius: 6, color: PRIORITY_CONFIG[aiPreview.priority]?.color ?? C.text,
+                            fontSize: 11, padding: '5px 24px 5px 8px',
+                            outline: 'none', fontFamily: 'inherit', width: '100%',
+                            appearance: 'none', cursor: 'pointer',
+                          }}
+                        >
+                          {PRIORITIES.map(p => <option key={p} value={p} style={{ backgroundColor: '#1a2840', color: C.text }}>{PRIORITY_CONFIG[p].label}</option>)}
+                        </select>
+                        <ChevronDown size={10} style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', color: '#4a6580', pointerEvents: 'none' }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Owner */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#4a6580', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Owner</span>
+                    <input
+                      value={aiPreview.task_owner ?? ''}
+                      onChange={e => setAiPreview(p => p ? { ...p, task_owner: e.target.value || null } : p)}
+                      placeholder="e.g. john@example.com"
+                      style={{
+                        backgroundColor: '#1a2840', border: `1px solid #2a3f52`,
+                        borderRadius: 6, color: aiPreview.task_owner ? C.text : '#4a6580',
+                        fontSize: 12, padding: '6px 9px',
+                        outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
+                        transition: 'border-color 0.15s',
+                      }}
+                      onFocus={e => (e.currentTarget.style.borderColor = '#3f9cfb')}
+                      onBlur={e  => (e.currentTarget.style.borderColor = '#2a3f52')}
+                    />
+                  </div>
+
+                  {/* Deadline */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#4a6580', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deadline</span>
+                    <input
+                      value={aiPreview.deadline ? toInputDate(aiPreview.deadline) : ''}
+                      onChange={e => setAiPreview(p => p ? { ...p, deadline: fromInputDate(e.target.value) } : p)}
+                      type="datetime-local"
+                      style={{
+                        backgroundColor: '#1a2840', border: `1px solid #2a3f52`,
+                        borderRadius: 6, color: aiPreview.deadline ? C.text : '#4a6580',
+                        fontSize: 12, padding: '5px 9px',
+                        outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
+                        transition: 'border-color 0.15s',
+                      }}
+                      onFocus={e => (e.currentTarget.style.borderColor = '#3f9cfb')}
+                      onBlur={e  => (e.currentTarget.style.borderColor = '#2a3f52')}
+                    />
+                  </div>
+
+                  {/* Sprint subtasks chips */}
+                  {aiPreview.sprint_task_names.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#4a6580', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Sprint Subtasks ({aiPreview.sprint_task_names.length})
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {aiPreview.sprint_task_names.map((name, i) => (
+                          <span
+                            key={i}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              backgroundColor: 'rgba(63,156,251,0.1)', border: '1px solid rgba(63,156,251,0.22)',
+                              borderRadius: 5, padding: '3px 8px',
+                              fontSize: 11, color: '#7db8f7',
+                            }}
+                          >
+                            {name}
+                            <button
+                              onClick={() => setAiPreview(p => p ? {
+                                ...p,
+                                sprint_task_names: p.sprint_task_names.filter((_, j) => j !== i),
+                              } : p)}
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: '#4a6580', padding: 0, display: 'flex', alignItems: 'center',
+                                lineHeight: 1,
+                              }}
+                              onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#F87171'}
+                              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#4a6580'}
+                            >
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Action buttons */}
                 <div style={{
                   display: 'flex', gap: 8, padding: '10px 14px',
-                  borderTop: `1px solid ${C.border}`,
+                  borderTop: `1px solid #1e3048`,
                 }}>
                   <button
                     onClick={() => { setAiPreview(null); setAiError(null) }}
                     style={{
                       flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                      backgroundColor: 'transparent', border: `1px solid ${C.border}`,
-                      borderRadius: 7, color: C.secondary, fontSize: 12, fontWeight: 500,
+                      backgroundColor: 'transparent', border: `1px solid #2a3f52`,
+                      borderRadius: 7, color: '#6b8aaa', fontSize: 12, fontWeight: 500,
                       padding: '7px 0', cursor: 'pointer', fontFamily: 'inherit',
+                      transition: 'border-color 0.12s, color 0.12s',
                     }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.borderHover; (e.currentTarget as HTMLButtonElement).style.color = C.text }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.border;     (e.currentTarget as HTMLButtonElement).style.color = C.secondary }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#3a5068'; (e.currentTarget as HTMLButtonElement).style.color = C.text }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#2a3f52'; (e.currentTarget as HTMLButtonElement).style.color = '#6b8aaa' }}
                   >
                     <XCircle size={13} />
                     Discard
                   </button>
                   <button
                     onClick={aiApprove}
-                    disabled={aiApproving}
+                    disabled={aiApproving || !aiPreview.name.trim()}
                     style={{
                       flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                       backgroundColor: '#4ADE80', border: 'none',
@@ -1538,13 +1717,14 @@ export default function DashboardPage() {
                       padding: '7px 0', cursor: aiApproving ? 'not-allowed' : 'pointer',
                       fontFamily: 'inherit', opacity: aiApproving ? 0.7 : 1,
                       transition: 'opacity 0.12s, background-color 0.12s',
+                      boxShadow: '0 2px 8px rgba(74,222,128,0.22)',
                     }}
                     onMouseEnter={e => { if (!aiApproving) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#22c55e' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#4ADE80' }}
                   >
                     {aiApproving
                       ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Adding…</>
-                      : <><CheckCircle2 size={13} /> Approve</>
+                      : <><CheckCircle2 size={13} /> Add to Dashboard</>
                     }
                   </button>
                 </div>

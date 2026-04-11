@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import Sidebar from './components/Sidebar'
+import AIAgent from './components/AIAgent'
 
 export const metadata: Metadata = {
   title: 'Project Management',
@@ -24,6 +25,7 @@ export default function RootLayout({
         <main className="flex-1 min-h-screen" style={{ marginLeft: 250 }}>
           {children}
         </main>
+        <AIAgent />
       </body>
     </html>
   )

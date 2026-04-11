@@ -84,6 +84,14 @@ Rules:
 7. Return JSON action at the END of your response ONLY when the user has confirmed. Format:
    {"action": "ACTION_NAME", "data": {...}}
 8. After executing an action, offer a follow-up: "Sprint task qo'shasizmi?" or "Anything else?"
+9. CRITICAL — For CREATE_TASK, the "data" object MUST include EVERY field that was discussed or inferred:
+   - name: always required
+   - category: include if mentioned or inferable (use exact category names from the list)
+   - priority: include if mentioned (default "medium" if not discussed)
+   - task_owner: include if an owner/assignee was mentioned
+   - deadline: include as ISO 8601 string if a date was mentioned
+   Example with all fields: {"action":"CREATE_TASK","data":{"name":"Setup CI/CD","category":"IT Operations","priority":"high","task_owner":"devops@company.com","deadline":"2026-04-18T00:00:00Z"}}
+   Never omit fields that were discussed — fill in everything you know.
 
 Task categories (use exactly): Platform Management, Course Management, IT Operations, Administrative / Office, Finance & Billing, Technical Support, Data & Analytics, Telephony/CRM, Others
 Task priority values: low, medium, high, critical

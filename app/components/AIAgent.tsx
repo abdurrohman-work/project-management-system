@@ -41,12 +41,13 @@ export default function AIAgent() {
   const pathname    = usePathname()
   const currentPage = pageFromPathname(pathname)
 
-  const [isOpen,    setIsOpen]    = useState(false)
-  const [messages,  setMessages]  = useState<Message[]>([])
-  const [input,     setInput]     = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [listening, setListening] = useState(false)
-  const [context,   setContext]   = useState<AgentContext | null>(null)
+  const [isOpen,      setIsOpen]      = useState(false)
+  const [messages,    setMessages]    = useState<Message[]>([])
+  const [input,       setInput]       = useState('')
+  const [isLoading,   setIsLoading]   = useState(false)
+  const [listening,   setListening]   = useState(false)
+  const [interimText, setInterimText] = useState('')
+  const [context,     setContext]     = useState<AgentContext | null>(null)
 
   const recognitionRef = useRef<{ stop: () => void } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -167,25 +168,51 @@ export default function AIAgent() {
   // ── Voice input ────────────────────────────────────────────────────────────
   function toggleVoice() {
     if (listening) {
+      // Stop mic — send whatever was accumulated in the textarea
       recognitionRef.current?.stop()
       setListening(false)
+      setInterimText('')
+      // Auto-send if there's content
+      setInput(prev => {
+        if (prev.trim()) {
+          // Defer sendMessage so state has settled
+          setTimeout(() => sendMessage(prev.trim()), 0)
+          return ''
+        }
+        return prev
+      })
       return
     }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (!SR) return
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rec = new SR()
-    rec.interimResults = false
-    rec.continuous     = false
+    rec.interimResults  = true   // show live preview while speaking
+    rec.continuous      = true   // stay active until manually stopped
+    rec.maxAlternatives = 1
+    // No rec.lang → browser auto-detects from system/input language
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (e: any) => {
-      const transcript = e.results[0][0].transcript
-      sendMessage(transcript)
+      let interim = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) {
+          // Append confirmed speech to the textarea
+          setInput(prev => (prev ? prev + ' ' : '') + t.trim())
+          setInterimText('')
+        } else {
+          interim += t
+        }
+      }
+      if (interim) setInterimText(interim)
     }
-    rec.onend   = () => setListening(false)
-    rec.onerror = () => setListening(false)
+
+    rec.onerror = () => { setListening(false); setInterimText('') }
+    // Do NOT set rec.onend to stop listening — we want continuous mode
     rec.start()
     recognitionRef.current = rec
     setListening(true)
@@ -381,11 +408,38 @@ export default function AIAgent() {
               padding:     '10px 12px',
               borderTop:   '1px solid #2a3f52',
               display:     'flex',
+              flexDirection: 'column',
               gap:         8,
-              alignItems:  'flex-end',
               flexShrink:  0,
             }}
           >
+            {/* Live interim voice transcript */}
+            {listening && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                padding: '5px 10px',
+                backgroundColor: 'rgba(239,68,68,0.07)',
+                border: '1px solid rgba(239,68,68,0.18)',
+                borderRadius: 7,
+              }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                  backgroundColor: '#f87171', animation: 'pulse 1s infinite',
+                }} />
+                <span style={{
+                  fontSize: 12, lineHeight: 1.4, flex: 1,
+                  color: interimText ? '#e2e4e9' : '#6b8aaa',
+                  fontStyle: interimText ? 'normal' : 'italic',
+                }}>
+                  {interimText || 'Listening… speak now'}
+                </span>
+                <span style={{ fontSize: 10, color: '#6b8aaa', flexShrink: 0 }}>
+                  tap 🎤 to send
+                </span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
             <textarea
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -457,6 +511,7 @@ export default function AIAgent() {
             >
               <Send size={14} color={input.trim() && !isLoading ? '#fff' : '#4a6580'} />
             </button>
+            </div>{/* end flex row */}
           </div>
 
         </div>

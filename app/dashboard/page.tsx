@@ -22,14 +22,6 @@ type ParsedTask = {
   note:       string | null
 }
 
-type VoiceLang = 'en-US' | 'ru-RU' | 'uz-UZ'
-
-const VOICE_LANGS: { code: VoiceLang; label: string; flag: string }[] = [
-  { code: 'en-US', label: 'EN', flag: '🇺🇸' },
-  { code: 'ru-RU', label: 'RU', flag: '🇷🇺' },
-  { code: 'uz-UZ', label: 'UZ', flag: '🇺🇿' },
-]
-
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const C = {
@@ -283,15 +275,19 @@ export default function DashboardPage() {
   const colMenuRef = useRef<HTMLDivElement>(null)
 
   // ── AI Sidebar ────────────────────────────────────────────────────────────
-  const [aiOpen,      setAiOpen]      = useState(false)
-  const [aiInput,     setAiInput]     = useState('')
-  const [aiParsing,   setAiParsing]   = useState(false)
-  const [aiPreview,   setAiPreview]   = useState<ParsedTask | null>(null)
-  const [aiApproving, setAiApproving] = useState(false)
-  const [aiError,     setAiError]     = useState<string | null>(null)
-  const [voiceLang,   setVoiceLang]   = useState<VoiceLang>('en-US')
-  const [listening,   setListening]   = useState(false)
-  const recognitionRef = useRef<{ stop: () => void } | null>(null)
+  const [aiOpen,       setAiOpen]       = useState(false)
+  const [aiInput,      setAiInput]      = useState('')
+  const [aiParsing,    setAiParsing]    = useState(false)
+  const [aiPreview,    setAiPreview]    = useState<ParsedTask | null>(null)
+  const [aiApproving,  setAiApproving]  = useState(false)
+  const [aiError,      setAiError]      = useState<string | null>(null)
+  const [listening,    setListening]    = useState(false)
+  const [interimText,  setInterimText]  = useState('')
+  const recognitionRef  = useRef<{ stop: () => void } | null>(null)
+  const canvasRef       = useRef<HTMLCanvasElement>(null)
+  const analyserRef     = useRef<AnalyserNode | null>(null)
+  const animFrameRef    = useRef<number>(0)
+  const audioCtxRef     = useRef<AudioContext | null>(null)
 
   // ── Toast ────────────────────────────────────────────────────────────────
   const { toasts, toast, dismiss } = useToast()
@@ -481,29 +477,99 @@ export default function DashboardPage() {
     }
   }
 
+  // ── AI: waveform animation ───────────────────────────────────────────────
+  function drawWaveform() {
+    const canvas   = canvasRef.current
+    const analyser = analyserRef.current
+    if (!canvas || !analyser) return
+    const ctx    = canvas.getContext('2d')
+    if (!ctx) return
+
+    const W  = canvas.width
+    const H  = canvas.height
+    const buf = new Uint8Array(analyser.frequencyBinCount)
+    analyser.getByteTimeDomainData(buf)
+
+    ctx.clearRect(0, 0, W, H)
+
+    // Glow line
+    ctx.shadowBlur  = 8
+    ctx.shadowColor = C.primary
+    ctx.lineWidth   = 2
+    ctx.strokeStyle = C.primary
+    ctx.beginPath()
+
+    const step = W / buf.length
+    buf.forEach((v, i) => {
+      const y = ((v / 128) - 1) * (H / 2.2) + H / 2
+      i === 0 ? ctx.moveTo(0, y) : ctx.lineTo(i * step, y)
+    })
+    ctx.stroke()
+    ctx.shadowBlur = 0
+
+    animFrameRef.current = requestAnimationFrame(drawWaveform)
+  }
+
+  function stopWaveform() {
+    cancelAnimationFrame(animFrameRef.current)
+    audioCtxRef.current?.close()
+    audioCtxRef.current  = null
+    analyserRef.current  = null
+    // Clear canvas
+    const canvas = canvasRef.current
+    if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
   // ── AI: voice input ───────────────────────────────────────────────────────
   function toggleVoice() {
     if (listening) {
       recognitionRef.current?.stop()
+      stopWaveform()
       setListening(false)
+      setInterimText('')
       return
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (!SR) { toast('Speech recognition is not supported in this browser.', 'error'); return }
+
     const rec = new SR()
-    rec.lang              = voiceLang
-    rec.interimResults    = false
-    rec.maxAlternatives   = 1
-    rec.onresult          = (e: { results: { [0]: { [0]: { transcript: string } } }[] }) => {
-      setAiInput(prev => (prev ? prev + ' ' : '') + e.results[0][0].transcript)
-      setListening(false)
+    // No lang set → browser auto-detects from system/input language
+    rec.interimResults  = true
+    rec.maxAlternatives = 1
+    rec.continuous      = true
+
+    rec.onresult = (e: SpeechRecognitionEvent) => {
+      let interim = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) {
+          setAiInput(prev => (prev ? prev + ' ' : '') + t.trim())
+          setInterimText('')
+        } else {
+          interim += t
+        }
+      }
+      if (interim) setInterimText(interim)
     }
-    rec.onerror = () => setListening(false)
-    rec.onend   = () => setListening(false)
+
+    rec.onerror = () => { stopWaveform(); setListening(false); setInterimText('') }
+    rec.onend   = () => { stopWaveform(); setListening(false); setInterimText('') }
     rec.start()
     recognitionRef.current = rec
     setListening(true)
+
+    // Set up AudioContext waveform visualiser
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      const ctx     = new AudioContext()
+      const source  = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      source.connect(analyser)
+      audioCtxRef.current  = ctx
+      analyserRef.current  = analyser
+      drawWaveform()
+    }).catch(() => { /* waveform optional — recording still works */ })
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1277,62 +1343,75 @@ export default function DashboardPage() {
               Describe a task in plain language — in English, Russian, or Uzbek. The AI will extract the details for your review before adding it to the table.
             </p>
 
-            {/* Language selector */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Voice language
-              </span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {VOICE_LANGS.map(lang => (
-                  <button
-                    key={lang.code}
-                    onClick={() => setVoiceLang(lang.code)}
-                    style={{
-                      flex: 1, padding: '6px 4px', borderRadius: 7, cursor: 'pointer',
-                      fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-                      backgroundColor: voiceLang === lang.code ? 'rgba(123,104,238,0.2)' : C.elevated,
-                      border: `1px solid ${voiceLang === lang.code ? C.primary : C.border}`,
-                      color: voiceLang === lang.code ? C.primary : C.secondary,
-                      transition: 'all 0.12s',
-                    }}
-                  >
-                    {lang.flag} {lang.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Text input + mic */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Task description
               </span>
+
+              {/* Waveform + interim transcript — visible only while listening */}
+              {listening && (
+                <div style={{
+                  backgroundColor: C.elevated,
+                  border: `1px solid ${C.primary}`,
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                }}>
+                  {/* Waveform canvas */}
+                  <canvas
+                    ref={canvasRef}
+                    width={308}
+                    height={52}
+                    style={{ display: 'block', width: '100%', height: 52 }}
+                  />
+                  {/* Live transcript */}
+                  <div style={{
+                    minHeight: 28,
+                    padding: '4px 10px 8px',
+                    borderTop: `1px solid ${C.border}`,
+                    display: 'flex', alignItems: 'center', gap: 7,
+                  }}>
+                    <span style={{
+                      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                      backgroundColor: '#F87171', animation: 'pulse 1s infinite',
+                    }} />
+                    <span style={{
+                      fontSize: 12, color: interimText ? C.text : C.muted,
+                      fontStyle: interimText ? 'normal' : 'italic', lineHeight: 1.4,
+                    }}>
+                      {interimText || 'Listening — speak now…'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div style={{ position: 'relative' }}>
                 <textarea
                   value={aiInput}
                   onChange={e => setAiInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) aiParse() }}
-                  placeholder={'e.g. "Set up CI/CD pipeline for the platform, high priority, assign to devops@company.com, deadline next Friday"'}
-                  rows={5}
+                  placeholder='e.g. "Set up CI/CD pipeline, high priority, assign to devops@company.com, deadline next Friday"'
+                  rows={4}
                   style={{
                     width: '100%', boxSizing: 'border-box',
-                    backgroundColor: C.elevated, border: `1px solid ${C.border}`,
+                    backgroundColor: C.elevated,
+                    border: `1px solid ${listening ? C.primary : C.border}`,
                     borderRadius: 8, color: C.text, fontSize: 12, lineHeight: 1.5,
-                    padding: '10px 12px 10px 12px', paddingBottom: 36,
+                    padding: '10px 40px 10px 12px',
                     outline: 'none', resize: 'vertical', fontFamily: 'inherit',
                     transition: 'border-color 0.15s',
                   }}
                 />
-                {/* Mic button inside textarea */}
+                {/* Mic button */}
                 <button
                   onClick={toggleVoice}
-                  title={listening ? 'Stop recording' : `Record in ${voiceLang}`}
+                  title={listening ? 'Stop recording' : 'Record voice (auto language)'}
                   style={{
                     position: 'absolute', bottom: 8, right: 8,
                     width: 28, height: 28, borderRadius: 6, border: 'none',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer',
-                    backgroundColor: listening ? 'rgba(239,68,68,0.15)' : C.surface,
+                    backgroundColor: listening ? 'rgba(239,68,68,0.18)' : C.surface,
                     color: listening ? '#F87171' : C.muted,
                     transition: 'all 0.15s',
                   }}
@@ -1341,18 +1420,10 @@ export default function DashboardPage() {
                 >
                   {listening ? <MicOff size={13} /> : <Mic size={13} />}
                 </button>
-                {listening && (
-                  <div style={{
-                    position: 'absolute', bottom: 8, right: 44,
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    fontSize: 11, color: '#F87171',
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#F87171', animation: 'pulse 1s infinite' }} />
-                    Listening…
-                  </div>
-                )}
               </div>
-              <p style={{ margin: 0, fontSize: 11, color: C.muted }}>Tip: Ctrl + Enter to parse</p>
+              <p style={{ margin: 0, fontSize: 11, color: C.muted }}>
+                Tip: Ctrl + Enter to parse · Voice auto-detects language
+              </p>
             </div>
 
             {/* Parse button */}

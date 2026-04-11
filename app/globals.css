@@ -36,6 +36,50 @@ input[type="date"] {
   color-scheme: dark;
 }
 
+/* Datetime picker icon */
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.55) brightness(1.2);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 3px;
+  transition: filter 0.12s, background-color 0.12s;
+}
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  filter: invert(0.75) brightness(1.4);
+  background-color: rgba(123, 104, 238, 0.18);
+}
+
+/* Datetime edit fields */
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-datetime-edit {
+  color: #E2E4E9;
+  padding: 0;
+}
+input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
+input[type="datetime-local"]::-webkit-datetime-edit-ampm-field {
+  border-radius: 3px;
+  padding: 1px 2px;
+}
+input[type="datetime-local"]::-webkit-datetime-edit-month-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-ampm-field:focus {
+  background-color: #7B68EE;
+  color: #fff;
+  outline: none;
+}
+
 /* Select arrow */
 select {
   appearance: none;
@@ -100,4 +144,47 @@ input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: #7B68EE !important;
   box-shadow: 0 0 0 3px rgba(123, 104, 238, 0.18) !important;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ── Floating dropdown panel ───────────────────────────────────────────────── */
+
+.dropdown-panel {
+  background-color: #31353F;
+  border: 1px solid #4A4F5A;
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.12),
+    0 8px 28px rgba(0,0,0,0.42),
+    0 2px 6px rgba(0,0,0,0.18);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #E2E4E9;
+  cursor: pointer;
+  transition: background-color 0.1s;
+  user-select: none;
+}
+.dropdown-item:hover {
+  background-color: rgba(123, 104, 238, 0.12);
+}
+.dropdown-item[data-active="true"] {
+  background-color: rgba(123, 104, 238, 0.18);
+  color: #A89CF7;
 }

@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Clock, Search, X, ChevronDown, Flag, Pencil } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Calendar, ChevronLeft, ChevronRight, Clock, Flag, Pencil, Search, X, ChevronDown } from 'lucide-react'
 import { minutesToHours } from '@/lib/time'
 import type { TaskPriority, WorkloadStatus } from '@/types/database'
 
@@ -45,7 +46,8 @@ const STATUS_CONFIG: Record<WorkloadStatus, { dot: string; text: string; bg: str
   not_started: { dot: '#9BA0AB', text: '#9BA0AB', bg: 'rgba(155,160,171,0.12)', label: 'Not Started' },
   in_progress: { dot: '#60A5FA', text: '#60A5FA', bg: 'rgba(59,130,246,0.12)',  label: 'In Progress' },
   done:        { dot: '#4ADE80', text: '#4ADE80', bg: 'rgba(74,222,128,0.12)', label: 'Done'        },
-  halted:      { dot: '#FBBF24', text: '#FBBF24', bg: 'rgba(245,158,11,0.12)', label: 'Halted'      },
+  stopped:     { dot: '#FBBF24', text: '#FBBF24', bg: 'rgba(245,158,11,0.12)', label: 'Stopped'     },
+  blocked:     { dot: '#F87171', text: '#F87171', bg: 'rgba(239,68,68,0.12)',  label: 'Blocked'     },
 }
 
 const PRIORITY_CONFIG: Record<TaskPriority, { color: string; label: string }> = {
@@ -55,7 +57,7 @@ const PRIORITY_CONFIG: Record<TaskPriority, { color: string; label: string }> = 
   low:      { color: '#6B7280', label: 'Low'      },
 }
 
-const ALL_STATUSES: WorkloadStatus[] = ['not_started', 'in_progress', 'done', 'halted']
+const ALL_STATUSES: WorkloadStatus[] = ['not_started', 'in_progress', 'done', 'stopped', 'blocked']
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,6 +72,405 @@ function buildParams(status: string, startAfter: string, startBefore: string): s
   if (startBefore) p.set('start_before', startBefore)
   const s = p.toString()
   return s ? `?${s}` : ''
+}
+
+// ─── DateTimePicker helpers ───────────────────────────────────────────────────
+
+const MONTHS = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+]
+const WEEK_DAYS = ['Su','Mo','Tu','We','Th','Fr','Sa']
+
+function buildCalendarCells(year: number, month: number): (number | null)[] {
+  const firstDow = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const cells: (number | null)[] = Array(firstDow).fill(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null)
+  return cells
+}
+
+/** Parse a "YYYY-MM-DDTHH:mm" string into parts. */
+function parseDTString(val: string): {
+  year: number; month: number; day: number; h24: number; min: number
+} | null {
+  if (!val) return null
+  const [datePart = '', timePart = '00:00'] = val.split('T')
+  const [y, mo, d] = datePart.split('-').map(Number)
+  const [h, m]     = timePart.split(':').map(Number)
+  if (!y || !mo || !d) return null
+  return { year: y, month: mo - 1, day: d, h24: h ?? 0, min: m ?? 0 }
+}
+
+/** Serialise back to "YYYY-MM-DDTHH:mm". */
+function toDTString(year: number, month: number, day: number, h24: number, min: number): string {
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+  return `${pad(year, 4)}-${pad(month + 1)}-${pad(day)}T${pad(h24)}:${pad(min)}`
+}
+
+function formatDTDisplay(val: string): string {
+  const dt = parseDTString(val)
+  if (!dt) return ''
+  const d = new Date(dt.year, dt.month, dt.day, dt.h24, dt.min)
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  })
+}
+
+// ─── Shared micro-styles ──────────────────────────────────────────────────────
+
+const dtNavBtnStyle: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  color: C.secondary, padding: '3px 6px', borderRadius: 5,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'background-color 0.12s, color 0.12s',
+}
+const dtTimeBtnStyle: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer', color: C.muted,
+  padding: '3px 8px', borderRadius: 4, lineHeight: 1, fontFamily: 'inherit',
+  fontSize: 11, transition: 'color 0.12s, background-color 0.12s',
+}
+const dtFooterLinkStyle: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer', color: C.muted,
+  fontSize: 12, padding: '4px 8px', borderRadius: 5, fontFamily: 'inherit',
+  transition: 'color 0.12s',
+}
+
+// ─── DateTimePicker component ─────────────────────────────────────────────────
+
+function DateTimePicker({
+  value,
+  onChange,
+  placeholder = 'Pick date & time',
+}: {
+  value:        string
+  onChange:     (val: string) => void
+  placeholder?: string
+}) {
+  const today = new Date()
+  const init  = parseDTString(value)
+
+  const [open,      setOpen]      = useState(false)
+  const [viewYear,  setViewYear]  = useState(init?.year  ?? today.getFullYear())
+  const [viewMonth, setViewMonth] = useState(init?.month ?? today.getMonth())
+  const [selYear,   setSelYear]   = useState(init?.year  ?? today.getFullYear())
+  const [selMonth,  setSelMonth]  = useState(init?.month ?? today.getMonth())
+  const [selDay,    setSelDay]    = useState(init?.day   ?? today.getDate())
+  const [hour12,    setHour12]    = useState(() => {
+    const h = init?.h24 ?? 0
+    return h === 0 ? 12 : h > 12 ? h - 12 : h
+  })
+  const [minute, setMinute] = useState(init?.min ?? 0)
+  const [ampm,   setAmpm]   = useState<'AM' | 'PM'>((init?.h24 ?? 0) >= 12 ? 'PM' : 'AM')
+  const [pos,    setPos]    = useState({ top: 0, left: 0 })
+  const [mounted, setMounted] = useState(false)
+
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef   = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  // Sync local state if value changes from outside
+  useEffect(() => {
+    const dt = parseDTString(value)
+    if (!dt) return
+    setViewYear(dt.year); setViewMonth(dt.month)
+    setSelYear(dt.year);  setSelMonth(dt.month); setSelDay(dt.day)
+    const h = dt.h24
+    setHour12(h === 0 ? 12 : h > 12 ? h - 12 : h)
+    setMinute(dt.min)
+    setAmpm(h >= 12 ? 'PM' : 'AM')
+  }, [value])
+
+  function openPicker() {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    // Clamp to viewport so panel never overflows the right edge
+    const left = Math.min(rect.left, window.innerWidth - 284 - 8)
+    setPos({ top: rect.bottom + 6, left: Math.max(8, left) })
+    setOpen(true)
+  }
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node
+      if (!triggerRef.current?.contains(t) && !panelRef.current?.contains(t)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  function commit() {
+    const h24 = ampm === 'AM'
+      ? (hour12 === 12 ? 0 : hour12)
+      : (hour12 === 12 ? 12 : hour12 + 12)
+    onChange(toDTString(selYear, selMonth, selDay, h24, minute))
+    setOpen(false)
+  }
+
+  function clear()    { onChange(''); setOpen(false) }
+  function gotoToday() {
+    setViewYear(today.getFullYear()); setViewMonth(today.getMonth())
+    setSelYear(today.getFullYear());  setSelMonth(today.getMonth()); setSelDay(today.getDate())
+  }
+
+  function prevMonth() {
+    setViewMonth(m => { if (m === 0) { setViewYear(y => y - 1); return 11 } return m - 1 })
+  }
+  function nextMonth() {
+    setViewMonth(m => { if (m === 11) { setViewYear(y => y + 1); return 0 } return m + 1 })
+  }
+
+  const cells = buildCalendarCells(viewYear, viewMonth)
+
+  const panel = mounted && open && createPortal(
+    <div
+      ref={panelRef}
+      style={{
+        position:        'fixed',
+        top:             pos.top,
+        left:            pos.left,
+        width:           284,
+        zIndex:          9999,
+        backgroundColor: C.elevated,
+        border:          `1px solid ${C.borderHover}`,
+        borderRadius:    12,
+        boxShadow:       '0 16px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04)',
+        overflow:        'hidden',
+        fontFamily:      'Inter, -apple-system, sans-serif',
+        animation:       'fadeInScale 0.14s ease-out',
+      }}
+    >
+      {/* ── Month navigation ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 14px 8px',
+        borderBottom: `1px solid ${C.border}`,
+      }}>
+        <button
+          onClick={prevMonth}
+          style={dtNavBtnStyle}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.surface; (e.currentTarget as HTMLButtonElement).style.color = C.text }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.secondary }}
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+          {MONTHS[viewMonth]} {viewYear}
+        </span>
+        <button
+          onClick={nextMonth}
+          style={dtNavBtnStyle}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.surface; (e.currentTarget as HTMLButtonElement).style.color = C.text }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.secondary }}
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+
+      {/* ── Day-of-week headers ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', padding: '8px 10px 2px' }}>
+        {WEEK_DAYS.map(d => (
+          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: C.muted, letterSpacing: '0.04em' }}>
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Day cells ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', padding: '2px 10px 8px', gap: 2 }}>
+        {cells.map((day, i) => {
+          if (!day) return <div key={`e-${i}`} />
+          const isSelected = day === selDay && viewMonth === selMonth && viewYear === selYear
+          const isToday    = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear()
+          return (
+            <button
+              key={`d-${i}`}
+              onClick={() => { setSelDay(day); setSelMonth(viewMonth); setSelYear(viewYear) }}
+              style={{
+                textAlign:       'center',
+                fontSize:        12,
+                fontWeight:      isSelected ? 700 : isToday ? 600 : 400,
+                padding:         '5px 2px',
+                border:          isToday && !isSelected ? `1.5px solid ${C.primary}` : 'none',
+                cursor:          'pointer',
+                borderRadius:    6,
+                fontFamily:      'inherit',
+                backgroundColor: isSelected ? C.primary : 'transparent',
+                color:           isSelected ? '#fff' : isToday ? C.primary : C.text,
+                transition:      'background-color 0.1s',
+              }}
+              onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.surface }}
+              onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+            >
+              {day}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Time selector ── */}
+      <div style={{
+        margin:          '0 10px 8px',
+        padding:         '10px 12px',
+        backgroundColor: C.surface,
+        border:          `1px solid ${C.border}`,
+        borderRadius:    8,
+        display:         'flex',
+        alignItems:      'center',
+        justifyContent:  'center',
+        gap:             10,
+      }}>
+        {/* Hours */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <button
+            onClick={() => setHour12(h => h === 12 ? 1 : h + 1)}
+            style={dtTimeBtnStyle}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.text; (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.elevated }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.muted; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+          >▲</button>
+          <span style={{ fontSize: 20, fontWeight: 600, color: C.text, minWidth: 28, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+            {String(hour12).padStart(2, '0')}
+          </span>
+          <button
+            onClick={() => setHour12(h => h === 1 ? 12 : h - 1)}
+            style={dtTimeBtnStyle}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.text; (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.elevated }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.muted; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+          >▼</button>
+        </div>
+
+        <span style={{ fontSize: 20, fontWeight: 600, color: C.muted, userSelect: 'none', marginBottom: 2 }}>:</span>
+
+        {/* Minutes */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <button
+            onClick={() => setMinute(m => (m + 1) % 60)}
+            style={dtTimeBtnStyle}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.text; (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.elevated }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.muted; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+          >▲</button>
+          <span style={{ fontSize: 20, fontWeight: 600, color: C.text, minWidth: 28, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+            {String(minute).padStart(2, '0')}
+          </span>
+          <button
+            onClick={() => setMinute(m => (m - 1 + 60) % 60)}
+            style={dtTimeBtnStyle}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.text; (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.elevated }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.muted; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+          >▼</button>
+        </div>
+
+        {/* AM / PM */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginLeft: 4 }}>
+          {(['AM', 'PM'] as const).map(p => (
+            <button
+              key={p}
+              onClick={() => setAmpm(p)}
+              style={{
+                fontSize:        11,
+                fontWeight:      600,
+                padding:         '5px 9px',
+                borderRadius:    6,
+                border:          'none',
+                cursor:          'pointer',
+                fontFamily:      'inherit',
+                backgroundColor: ampm === p ? C.primary : C.elevated,
+                color:           ampm === p ? '#fff' : C.muted,
+                transition:      'background-color 0.12s, color 0.12s',
+              }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Footer ── */}
+      <div style={{
+        display:        'flex',
+        alignItems:     'center',
+        justifyContent: 'space-between',
+        padding:        '6px 14px 12px',
+      }}>
+        <button
+          onClick={clear}
+          style={dtFooterLinkStyle}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.text }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.muted }}
+        >
+          Clear
+        </button>
+        <button
+          onClick={gotoToday}
+          style={dtFooterLinkStyle}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.text }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.muted }}
+        >
+          Today
+        </button>
+        <button
+          onClick={commit}
+          style={{
+            backgroundColor: C.primary,
+            color:           '#fff',
+            border:          'none',
+            borderRadius:    7,
+            fontSize:        12,
+            fontWeight:      600,
+            padding:         '6px 16px',
+            cursor:          'pointer',
+            fontFamily:      'inherit',
+            transition:      'background-color 0.12s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.primaryHover }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.primary }}
+        >
+          Apply
+        </button>
+      </div>
+    </div>,
+    document.body
+  )
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={openPicker}
+        style={{
+          display:         'inline-flex',
+          alignItems:      'center',
+          gap:             6,
+          backgroundColor: value ? 'rgba(123,104,238,0.10)' : C.elevated,
+          border:          `1px solid ${open ? C.primary : value ? C.primary : C.borderHover}`,
+          borderRadius:    8,
+          color:           value ? C.text : C.muted,
+          fontSize:        12,
+          fontWeight:      500,
+          padding:         '8px 12px',
+          cursor:          'pointer',
+          fontFamily:      'inherit',
+          boxShadow:       '0 1px 3px rgba(0,0,0,0.2)',
+          transition:      'border-color 0.15s, background-color 0.15s',
+          whiteSpace:      'nowrap',
+          minWidth:        168,
+        }}
+      >
+        <Calendar size={12} style={{ color: value ? C.primary : C.muted, flexShrink: 0 }} />
+        <span style={{ flex: 1, textAlign: 'left' }}>
+          {value ? formatDTDisplay(value) : placeholder}
+        </span>
+      </button>
+      {panel}
+    </>
+  )
 }
 
 // ─── Inline editable time cell ────────────────────────────────────────────────
@@ -162,7 +563,14 @@ export default function WorkloadPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function applyFilters() { load(filterStatus, filterStartAfter, filterStartBefore) }
+  // Extract date-only part for the API (start_date is a date column)
+  function applyFilters() {
+    load(
+      filterStatus,
+      filterStartAfter.split('T')[0]  ?? '',
+      filterStartBefore.split('T')[0] ?? '',
+    )
+  }
 
   function clearFilters() {
     setFilterStatus('')
@@ -241,16 +649,18 @@ export default function WorkloadPage() {
                 value={filterStatus}
                 onChange={e => setFilterStatus(e.target.value)}
                 style={{
-                  backgroundColor: filterStatus ? 'rgba(123,104,238,0.12)' : C.bg,
-                  border: `1px solid ${filterStatus ? C.primary : C.border}`,
-                  borderRadius: 7, color: filterStatus ? C.primary : C.secondary,
-                  fontSize: 12, fontWeight: 500, padding: '7px 28px 7px 10px',
-                  cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none', minWidth: 140,
+                  backgroundColor: filterStatus ? 'rgba(123,104,238,0.14)' : C.elevated,
+                  border: `1px solid ${filterStatus ? C.primary : C.borderHover}`,
+                  borderRadius: 8, color: filterStatus ? C.primary : C.secondary,
+                  fontSize: 12, fontWeight: 500, padding: '8px 32px 8px 12px',
+                  cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none', minWidth: 148,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  transition: 'border-color 0.15s, background-color 0.15s',
                 }}
               >
-                <option value="">All statuses</option>
+                <option value="" style={{ backgroundColor: C.elevated, color: C.text }}>All statuses</option>
                 {ALL_STATUSES.map(s => (
-                  <option key={s} value={s} style={{ backgroundColor: C.surface, color: C.text }}>
+                  <option key={s} value={s} style={{ backgroundColor: C.elevated, color: C.text }}>
                     {STATUS_CONFIG[s].label}
                   </option>
                 ))}
@@ -264,15 +674,10 @@ export default function WorkloadPage() {
             <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Start after
             </label>
-            <input
-              type="date"
+            <DateTimePicker
               value={filterStartAfter}
-              onChange={e => setFilterStartAfter(e.target.value)}
-              style={{
-                backgroundColor: C.bg, border: `1px solid ${C.border}`,
-                borderRadius: 7, color: filterStartAfter ? C.text : C.muted,
-                fontSize: 12, padding: '7px 10px', outline: 'none', fontFamily: 'inherit',
-              }}
+              onChange={setFilterStartAfter}
+              placeholder="Start after…"
             />
           </div>
 
@@ -281,15 +686,10 @@ export default function WorkloadPage() {
             <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Start before
             </label>
-            <input
-              type="date"
+            <DateTimePicker
               value={filterStartBefore}
-              onChange={e => setFilterStartBefore(e.target.value)}
-              style={{
-                backgroundColor: C.bg, border: `1px solid ${C.border}`,
-                borderRadius: 7, color: filterStartBefore ? C.text : C.muted,
-                fontSize: 12, padding: '7px 10px', outline: 'none', fontFamily: 'inherit',
-              }}
+              onChange={setFilterStartBefore}
+              placeholder="Start before…"
             />
           </div>
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 import type { WorkloadStatus } from '@/types/database'
 
-const VALID_STATUSES: WorkloadStatus[] = ['not_started', 'in_progress', 'done', 'halted']
+const VALID_STATUSES: WorkloadStatus[] = ['not_started', 'in_progress', 'done', 'stopped', 'blocked']
 
 // Shape of each row returned by the nested select
 type RawRow = {

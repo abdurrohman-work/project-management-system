@@ -238,7 +238,8 @@ const WORKLOAD_TO_SPRINT_STATUS: Record<WorkloadStatus, SprintTaskStatus> = {
   not_started: 'not_started',
   in_progress: 'in_progress',
   done:        'done',
-  halted:      'partly_completed',
+  stopped:     'stopped',
+  blocked:     'blocked',
 }
 
 /**

@@ -3,7 +3,7 @@ import { createServerClient } from '@/lib/supabase-server'
 import { onWorkloadEntryChanged } from '@/lib/cascade'
 import type { WorkloadStatus } from '@/types/database'
 
-const VALID_STATUSES: WorkloadStatus[] = ['not_started', 'in_progress', 'done', 'halted']
+const VALID_STATUSES: WorkloadStatus[] = ['not_started', 'in_progress', 'done', 'stopped', 'blocked']
 
 export async function PATCH(
   request: NextRequest,

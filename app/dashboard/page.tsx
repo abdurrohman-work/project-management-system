@@ -4,11 +4,31 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Plus, X, Flag, Trash2, ChevronDown, ChevronUp, Search,
   LayoutDashboard, Pencil, SlidersHorizontal,
+  Sparkles, Mic, MicOff, CheckCircle2, XCircle, Loader2, ChevronRight,
 } from 'lucide-react'
 import { minutesToHours } from '@/lib/time'
 import type { MainTask, MainTaskStatus, TaskPriority } from '@/types/database'
 import { ToastContainer, useToast } from '@/app/components/Toast'
 import { ConfirmDialog }           from '@/app/components/ConfirmDialog'
+
+// ─── AI Sidebar types ─────────────────────────────────────────────────────────
+
+type ParsedTask = {
+  name:       string
+  category:   string | null
+  priority:   TaskPriority
+  task_owner: string | null
+  deadline:   string | null
+  note:       string | null
+}
+
+type VoiceLang = 'en-US' | 'ru-RU' | 'uz-UZ'
+
+const VOICE_LANGS: { code: VoiceLang; label: string; flag: string }[] = [
+  { code: 'en-US', label: 'EN', flag: '🇺🇸' },
+  { code: 'ru-RU', label: 'RU', flag: '🇷🇺' },
+  { code: 'uz-UZ', label: 'UZ', flag: '🇺🇿' },
+]
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -187,15 +207,18 @@ function FieldLabel({ children, required }: { children: React.ReactNode; require
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
 const modalInput: React.CSSProperties = {
-  width: '100%', backgroundColor: C.bg, border: `1px solid ${C.border}`,
-  borderRadius: 6, color: C.text, padding: '8px 12px',
+  width: '100%', backgroundColor: C.elevated, border: `1px solid ${C.borderHover}`,
+  borderRadius: 8, color: C.text, padding: '9px 12px',
   fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
+  transition: 'border-color 0.15s',
 }
 
 const cellInput: React.CSSProperties = {
-  backgroundColor: C.bg, border: `1.5px solid ${C.primary}`, borderRadius: 5,
-  color: C.text, padding: '3px 8px', fontSize: 13, outline: 'none',
+  backgroundColor: C.bg, border: `1.5px solid ${C.primary}`, borderRadius: 6,
+  color: C.text, padding: '4px 8px', fontSize: 13, outline: 'none',
   width: '100%', fontFamily: 'inherit',
+  boxShadow: '0 0 0 3px rgba(123,104,238,0.15)',
 }
 
 // ─── Empty form ───────────────────────────────────────────────────────────────
@@ -258,6 +281,17 @@ export default function DashboardPage() {
   )
   const [showColMenu, setShowColMenu] = useState(false)
   const colMenuRef = useRef<HTMLDivElement>(null)
+
+  // ── AI Sidebar ────────────────────────────────────────────────────────────
+  const [aiOpen,      setAiOpen]      = useState(false)
+  const [aiInput,     setAiInput]     = useState('')
+  const [aiParsing,   setAiParsing]   = useState(false)
+  const [aiPreview,   setAiPreview]   = useState<ParsedTask | null>(null)
+  const [aiApproving, setAiApproving] = useState(false)
+  const [aiError,     setAiError]     = useState<string | null>(null)
+  const [voiceLang,   setVoiceLang]   = useState<VoiceLang>('en-US')
+  const [listening,   setListening]   = useState(false)
+  const recognitionRef = useRef<{ stop: () => void } | null>(null)
 
   // ── Toast ────────────────────────────────────────────────────────────────
   const { toasts, toast, dismiss } = useToast()
@@ -398,9 +432,86 @@ export default function DashboardPage() {
     }
   }
 
+  // ── AI: parse text → structured preview ──────────────────────────────────
+  async function aiParse() {
+    if (!aiInput.trim()) return
+    setAiParsing(true)
+    setAiError(null)
+    setAiPreview(null)
+    try {
+      const res  = await fetch('/api/ai/parse-task', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: aiInput }),
+      })
+      const json = await res.json()
+      if (json.success) setAiPreview(json.data)
+      else setAiError(json.error ?? 'Failed to parse task.')
+    } catch {
+      setAiError('Network error. Please try again.')
+    }
+    setAiParsing(false)
+  }
+
+  // ── AI: approve preview → create task ────────────────────────────────────
+  async function aiApprove() {
+    if (!aiPreview) return
+    setAiApproving(true)
+    const res  = await fetch('/api/main-tasks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name:       aiPreview.name,
+        category:   aiPreview.category,
+        priority:   aiPreview.priority,
+        task_owner: aiPreview.task_owner,
+        deadline:   aiPreview.deadline,
+        note:       aiPreview.note,
+      }),
+    })
+    const json = await res.json()
+    setAiApproving(false)
+    if (json.success) {
+      setTasks(prev => [json.data, ...prev])
+      setNewTaskId(json.data.id)
+      setTimeout(() => setNewTaskId(null), 1400)
+      toast(`"${json.data.name}" created via AI`)
+      setAiPreview(null)
+      setAiInput('')
+    } else {
+      setAiError(json.error ?? 'Failed to create task.')
+    }
+  }
+
+  // ── AI: voice input ───────────────────────────────────────────────────────
+  function toggleVoice() {
+    if (listening) {
+      recognitionRef.current?.stop()
+      setListening(false)
+      return
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) { toast('Speech recognition is not supported in this browser.', 'error'); return }
+    const rec = new SR()
+    rec.lang              = voiceLang
+    rec.interimResults    = false
+    rec.maxAlternatives   = 1
+    rec.onresult          = (e: { results: { [0]: { [0]: { transcript: string } } }[] }) => {
+      setAiInput(prev => (prev ? prev + ' ' : '') + e.results[0][0].transcript)
+      setListening(false)
+    }
+    rec.onerror = () => setListening(false)
+    rec.onend   = () => setListening(false)
+    rec.start()
+    recognitionRef.current = rec
+    setListening(true)
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ backgroundColor: C.bg, minHeight: '100vh' }}>
+    <div style={{ backgroundColor: C.bg, minHeight: '100vh', display: 'flex', flexDirection: 'row' }}>
+
+      {/* ── Main column ── */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
 
       {/* Toast */}
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
@@ -444,20 +555,42 @@ export default function DashboardPage() {
           </span>
         </div>
 
-        <button
-          onClick={() => { setShowModal(true); setForm(EMPTY_FORM); setFormError(null) }}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            backgroundColor: C.primary, color: '#fff', border: 'none',
-            borderRadius: 7, padding: '7px 14px', fontSize: 13, fontWeight: 500,
-            cursor: 'pointer', transition: 'background-color 0.12s',
-          }}
-          onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.primaryHover)}
-          onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.primary)}
-        >
-          <Plus size={14} />
-          New Task
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* AI assistant toggle */}
+          <button
+            onClick={() => setAiOpen(v => !v)}
+            title="AI Task Assistant"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              backgroundColor: aiOpen ? 'rgba(123,104,238,0.18)' : 'transparent',
+              border: `1px solid ${aiOpen ? C.primary : C.border}`,
+              borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 500,
+              color: aiOpen ? C.primary : C.secondary,
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { if (!aiOpen) { (e.currentTarget as HTMLButtonElement).style.borderColor = C.borderHover; (e.currentTarget as HTMLButtonElement).style.color = C.text } }}
+            onMouseLeave={e => { if (!aiOpen) { (e.currentTarget as HTMLButtonElement).style.borderColor = C.border;     (e.currentTarget as HTMLButtonElement).style.color = C.secondary } }}
+          >
+            <Sparkles size={13} />
+            AI Assistant
+            <ChevronRight size={12} style={{ transform: aiOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+          </button>
+
+          <button
+            onClick={() => { setShowModal(true); setForm(EMPTY_FORM); setFormError(null) }}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              backgroundColor: C.primary, color: '#fff', border: 'none',
+              borderRadius: 7, padding: '7px 14px', fontSize: 13, fontWeight: 500,
+              cursor: 'pointer', transition: 'background-color 0.12s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.primaryHover)}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.primary)}
+          >
+            <Plus size={14} />
+            New Task
+          </button>
+        </div>
       </div>
 
       <div style={{ padding: '24px 28px' }}>
@@ -518,21 +651,23 @@ export default function DashboardPage() {
               value={filterStatus}
               onChange={e => setFilterStatus(e.target.value as MainTaskStatus | '')}
               style={{
-                backgroundColor: filterStatus ? 'rgba(123,104,238,0.12)' : C.surface,
-                border: `1px solid ${filterStatus ? C.primary : C.border}`,
-                borderRadius: 7, color: filterStatus ? C.primary : C.secondary,
-                fontSize: 12, fontWeight: 500, padding: '7px 28px 7px 10px',
+                backgroundColor: filterStatus ? 'rgba(123,104,238,0.14)' : C.elevated,
+                border: `1px solid ${filterStatus ? C.primary : C.borderHover}`,
+                borderRadius: 8, color: filterStatus ? C.primary : C.secondary,
+                fontSize: 12, fontWeight: 500, padding: '8px 32px 8px 12px',
                 cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                transition: 'border-color 0.15s, background-color 0.15s',
               }}
             >
-              <option value="">All Statuses</option>
+              <option value="" style={{ backgroundColor: C.elevated, color: C.text }}>All Statuses</option>
               {ALL_STATUSES.map(s => (
-                <option key={s} value={s} style={{ backgroundColor: C.surface, color: C.text }}>
+                <option key={s} value={s} style={{ backgroundColor: C.elevated, color: C.text }}>
                   {STATUS_CONFIG[s].label}
                 </option>
               ))}
             </select>
-            <ChevronDown size={12} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: filterStatus ? C.primary : C.muted, pointerEvents: 'none' }} />
+            <ChevronDown size={12} style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', color: filterStatus ? C.primary : C.muted, pointerEvents: 'none' }} />
           </div>
 
           {/* Priority filter */}
@@ -541,21 +676,23 @@ export default function DashboardPage() {
               value={filterPriority}
               onChange={e => setFilterPriority(e.target.value as TaskPriority | '')}
               style={{
-                backgroundColor: filterPriority ? 'rgba(123,104,238,0.12)' : C.surface,
-                border: `1px solid ${filterPriority ? C.primary : C.border}`,
-                borderRadius: 7, color: filterPriority ? C.primary : C.secondary,
-                fontSize: 12, fontWeight: 500, padding: '7px 28px 7px 10px',
+                backgroundColor: filterPriority ? 'rgba(123,104,238,0.14)' : C.elevated,
+                border: `1px solid ${filterPriority ? C.primary : C.borderHover}`,
+                borderRadius: 8, color: filterPriority ? C.primary : C.secondary,
+                fontSize: 12, fontWeight: 500, padding: '8px 32px 8px 12px',
                 cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                transition: 'border-color 0.15s, background-color 0.15s',
               }}
             >
-              <option value="">All Priorities</option>
+              <option value="" style={{ backgroundColor: C.elevated, color: C.text }}>All Priorities</option>
               {PRIORITIES.map(p => (
-                <option key={p} value={p} style={{ backgroundColor: C.surface, color: C.text }}>
+                <option key={p} value={p} style={{ backgroundColor: C.elevated, color: C.text }}>
                   {PRIORITY_CONFIG[p].label}
                 </option>
               ))}
             </select>
-            <ChevronDown size={12} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: filterPriority ? C.primary : C.muted, pointerEvents: 'none' }} />
+            <ChevronDown size={12} style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', color: filterPriority ? C.primary : C.muted, pointerEvents: 'none' }} />
           </div>
 
           {/* Clear filters */}
@@ -594,22 +731,18 @@ export default function DashboardPage() {
             </button>
             {showColMenu && (
               <div
+                className="dropdown-panel"
                 style={{
-                  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 40,
-                  backgroundColor: C.surface, border: `1px solid ${C.border}`,
-                  borderRadius: 8, padding: '6px 0', minWidth: 160,
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                  position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
+                  minWidth: 172,
                 }}
               >
                 {COLUMNS.filter(c => c.key !== '_delete' && c.label).map(col => (
                   <label
                     key={col.key}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '6px 14px', cursor: 'pointer',
-                      fontSize: 13, color: C.text,
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.surfaceHover)}
+                    className="dropdown-item"
+                    style={{ fontWeight: visibleCols.has(col.key) ? 500 : 400 }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(123,104,238,0.1)')}
                     onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <input
@@ -621,7 +754,7 @@ export default function DashboardPage() {
                         else next.add(col.key)
                         return next
                       })}
-                      style={{ accentColor: C.primary, cursor: 'pointer' }}
+                      style={{ accentColor: C.primary, cursor: 'pointer', flexShrink: 0 }}
                     />
                     {col.label}
                   </label>
@@ -691,8 +824,8 @@ export default function DashboardPage() {
                     <FieldLabel>Category</FieldLabel>
                     <div style={{ position: 'relative' }}>
                       <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={{ ...modalInput, paddingRight: 32, cursor: 'pointer' }}>
-                        <option value="">— Select —</option>
-                        {CATEGORIES.map(c => <option key={c} value={c} style={{ backgroundColor: C.surface }}>{c}</option>)}
+                        <option value="" style={{ backgroundColor: C.elevated, color: C.text }}>— Select —</option>
+                        {CATEGORIES.map(c => <option key={c} value={c} style={{ backgroundColor: C.elevated, color: C.text }}>{c}</option>)}
                       </select>
                       <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
                     </div>
@@ -701,7 +834,7 @@ export default function DashboardPage() {
                     <FieldLabel>Priority</FieldLabel>
                     <div style={{ position: 'relative' }}>
                       <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as TaskPriority }))} style={{ ...modalInput, paddingRight: 32, cursor: 'pointer' }}>
-                        {PRIORITIES.map(p => <option key={p} value={p} style={{ backgroundColor: C.surface }}>{PRIORITY_CONFIG[p].label}</option>)}
+                        {PRIORITIES.map(p => <option key={p} value={p} style={{ backgroundColor: C.elevated, color: C.text }}>{PRIORITY_CONFIG[p].label}</option>)}
                       </select>
                       <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
                     </div>
@@ -933,8 +1066,9 @@ export default function DashboardPage() {
                                   color:           STATUS_CONFIG[editValue as MainTaskStatus]?.text ?? C.text,
                                   border: `1.5px solid ${C.primary}`,
                                   borderRadius: 9999, fontSize: 11, fontWeight: 500,
-                                  padding: '3px 26px 3px 10px',
+                                  padding: '4px 28px 4px 10px',
                                   cursor: 'pointer', outline: 'none', appearance: 'none', fontFamily: 'inherit',
+                                  boxShadow: '0 0 0 3px rgba(123,104,238,0.15)',
                                 }}
                               >
                                 {ALL_STATUSES.map(s => (
@@ -1097,6 +1231,258 @@ export default function DashboardPage() {
         </div>
 
       </div>
+      </div>{/* end main column */}
+
+      {/* ── AI Assistant Sidebar ── */}
+      {aiOpen && (
+        <div
+          style={{
+            width:           340,
+            flexShrink:      0,
+            borderLeft:      `1px solid ${C.border}`,
+            backgroundColor: C.sidebar,
+            display:         'flex',
+            flexDirection:   'column',
+            height:          '100vh',
+            position:        'sticky',
+            top:             0,
+            overflowY:       'auto',
+          }}
+        >
+          {/* Sidebar header */}
+          <div style={{
+            height: 56, borderBottom: `1px solid ${C.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '0 16px', flexShrink: 0,
+            position: 'sticky', top: 0, backgroundColor: C.sidebar, zIndex: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Sparkles size={14} style={{ color: C.primary }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>AI Task Assistant</span>
+            </div>
+            <button
+              onClick={() => setAiOpen(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted, padding: 4, borderRadius: 5, display: 'flex' }}
+              onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = C.text}
+              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = C.muted}
+            >
+              <X size={15} />
+            </button>
+          </div>
+
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
+
+            {/* Instruction hint */}
+            <p style={{ margin: 0, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+              Describe a task in plain language — in English, Russian, or Uzbek. The AI will extract the details for your review before adding it to the table.
+            </p>
+
+            {/* Language selector */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Voice language
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {VOICE_LANGS.map(lang => (
+                  <button
+                    key={lang.code}
+                    onClick={() => setVoiceLang(lang.code)}
+                    style={{
+                      flex: 1, padding: '6px 4px', borderRadius: 7, cursor: 'pointer',
+                      fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                      backgroundColor: voiceLang === lang.code ? 'rgba(123,104,238,0.2)' : C.elevated,
+                      border: `1px solid ${voiceLang === lang.code ? C.primary : C.border}`,
+                      color: voiceLang === lang.code ? C.primary : C.secondary,
+                      transition: 'all 0.12s',
+                    }}
+                  >
+                    {lang.flag} {lang.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Text input + mic */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Task description
+              </span>
+              <div style={{ position: 'relative' }}>
+                <textarea
+                  value={aiInput}
+                  onChange={e => setAiInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) aiParse() }}
+                  placeholder={'e.g. "Set up CI/CD pipeline for the platform, high priority, assign to devops@company.com, deadline next Friday"'}
+                  rows={5}
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    backgroundColor: C.elevated, border: `1px solid ${C.border}`,
+                    borderRadius: 8, color: C.text, fontSize: 12, lineHeight: 1.5,
+                    padding: '10px 12px 10px 12px', paddingBottom: 36,
+                    outline: 'none', resize: 'vertical', fontFamily: 'inherit',
+                    transition: 'border-color 0.15s',
+                  }}
+                />
+                {/* Mic button inside textarea */}
+                <button
+                  onClick={toggleVoice}
+                  title={listening ? 'Stop recording' : `Record in ${voiceLang}`}
+                  style={{
+                    position: 'absolute', bottom: 8, right: 8,
+                    width: 28, height: 28, borderRadius: 6, border: 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer',
+                    backgroundColor: listening ? 'rgba(239,68,68,0.15)' : C.surface,
+                    color: listening ? '#F87171' : C.muted,
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!listening) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.surfaceHover; (e.currentTarget as HTMLButtonElement).style.color = C.text } }}
+                  onMouseLeave={e => { if (!listening) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.surface;      (e.currentTarget as HTMLButtonElement).style.color = C.muted } }}
+                >
+                  {listening ? <MicOff size={13} /> : <Mic size={13} />}
+                </button>
+                {listening && (
+                  <div style={{
+                    position: 'absolute', bottom: 8, right: 44,
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    fontSize: 11, color: '#F87171',
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#F87171', animation: 'pulse 1s infinite' }} />
+                    Listening…
+                  </div>
+                )}
+              </div>
+              <p style={{ margin: 0, fontSize: 11, color: C.muted }}>Tip: Ctrl + Enter to parse</p>
+            </div>
+
+            {/* Parse button */}
+            <button
+              onClick={aiParse}
+              disabled={aiParsing || !aiInput.trim()}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                backgroundColor: C.primary, color: '#fff', border: 'none',
+                borderRadius: 8, padding: '9px 0', fontSize: 13, fontWeight: 600,
+                cursor: aiParsing || !aiInput.trim() ? 'not-allowed' : 'pointer',
+                opacity: !aiInput.trim() ? 0.5 : 1,
+                fontFamily: 'inherit', transition: 'background-color 0.12s, opacity 0.12s',
+              }}
+              onMouseEnter={e => { if (!aiParsing && aiInput.trim()) (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.primaryHover }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.primary }}
+            >
+              {aiParsing
+                ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Parsing…</>
+                : <><Sparkles size={13} /> Parse Task</>
+              }
+            </button>
+
+            {/* Error */}
+            {aiError && (
+              <div style={{
+                backgroundColor: 'rgba(239,68,68,0.08)', border: `1px solid rgba(239,68,68,0.25)`,
+                borderRadius: 8, padding: '10px 12px',
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+              }}>
+                <XCircle size={14} style={{ color: C.danger, flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: '#F87171', lineHeight: 1.4 }}>{aiError}</span>
+              </div>
+            )}
+
+            {/* Task preview */}
+            {aiPreview && (
+              <div style={{
+                backgroundColor: C.surface, border: `1px solid ${C.border}`,
+                borderRadius: 10, overflow: 'hidden',
+              }}>
+                {/* Preview header */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '10px 14px', borderBottom: `1px solid ${C.border}`,
+                  backgroundColor: 'rgba(123,104,238,0.06)',
+                }}>
+                  <CheckCircle2 size={13} style={{ color: '#4ADE80' }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Parsed Preview</span>
+                  <span style={{ fontSize: 11, color: C.muted, marginLeft: 'auto' }}>Review before approving</span>
+                </div>
+
+                {/* Fields */}
+                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {(
+                    [
+                      { label: 'Name',     value: aiPreview.name,       key: 'name'       },
+                      { label: 'Category', value: aiPreview.category,   key: 'category'   },
+                      { label: 'Priority', value: aiPreview.priority,   key: 'priority'   },
+                      { label: 'Owner',    value: aiPreview.task_owner, key: 'task_owner' },
+                      { label: 'Deadline', value: aiPreview.deadline,   key: 'deadline'   },
+                      { label: 'Note',     value: aiPreview.note,       key: 'note'       },
+                    ] as { label: string; value: string | null; key: keyof ParsedTask }[]
+                  ).map(({ label, value, key }) => (
+                    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {label}
+                      </span>
+                      <input
+                        value={value ?? ''}
+                        onChange={e => setAiPreview(p => p ? { ...p, [key]: e.target.value || null } : p)}
+                        style={{
+                          backgroundColor: C.elevated, border: `1px solid ${C.border}`,
+                          borderRadius: 6, color: value ? C.text : C.muted,
+                          fontSize: 12, padding: '5px 8px', outline: 'none',
+                          fontFamily: 'inherit', transition: 'border-color 0.15s', width: '100%', boxSizing: 'border-box',
+                        }}
+                        onFocus={e  => (e.currentTarget.style.borderColor = C.primary)}
+                        onBlur={e   => (e.currentTarget.style.borderColor = C.border)}
+                        placeholder="—"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Action buttons */}
+                <div style={{
+                  display: 'flex', gap: 8, padding: '10px 14px',
+                  borderTop: `1px solid ${C.border}`,
+                }}>
+                  <button
+                    onClick={() => { setAiPreview(null); setAiError(null) }}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      backgroundColor: 'transparent', border: `1px solid ${C.border}`,
+                      borderRadius: 7, color: C.secondary, fontSize: 12, fontWeight: 500,
+                      padding: '7px 0', cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.borderHover; (e.currentTarget as HTMLButtonElement).style.color = C.text }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.border;     (e.currentTarget as HTMLButtonElement).style.color = C.secondary }}
+                  >
+                    <XCircle size={13} />
+                    Discard
+                  </button>
+                  <button
+                    onClick={aiApprove}
+                    disabled={aiApproving}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      backgroundColor: '#4ADE80', border: 'none',
+                      borderRadius: 7, color: '#0a1a0f', fontSize: 12, fontWeight: 700,
+                      padding: '7px 0', cursor: aiApproving ? 'not-allowed' : 'pointer',
+                      fontFamily: 'inherit', opacity: aiApproving ? 0.7 : 1,
+                      transition: 'opacity 0.12s, background-color 0.12s',
+                    }}
+                    onMouseEnter={e => { if (!aiApproving) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#22c55e' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#4ADE80' }}
+                  >
+                    {aiApproving
+                      ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Adding…</>
+                      : <><CheckCircle2 size={13} /> Approve</>
+                    }
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

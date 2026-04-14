@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createServerClient } from '@/lib/supabase-server'
 import type { TaskPriority, MainTaskStatus, SprintTaskStatus } from '@/types/database'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' })
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -63,45 +63,50 @@ function buildSystemPrompt(context: RequestContext): string {
   const taskCount = context.tasks?.length ?? 0
   const currentPage = context.page ?? 'dashboard'
 
-  return `You are an AI agent for Mohir.dev's project management system.
-You help users create, update, and manage tasks through natural conversation.
-Language: respond in the same language the user writes in (Uzbek, Russian, or English).
-Current context: ${currentPage} page, ${taskCount} tasks, active sprint: ${sprintName}
+  return `You are an intelligent AI agent for Mohir.dev project management system.
+You help users create, update, and query tasks through friendly conversation.
 
-You can perform these actions:
-- CREATE_TASK: create a main task
-- UPDATE_TASK: update any field on a task by ID or name
-- CREATE_SUBTASK: add a sprint task to a main task
-- CHANGE_STATUS: change task status
-- ASSIGN_TASK: set task owner
-- SET_DEADLINE: set deadline
-- QUERY_TASKS: answer questions about tasks
+LANGUAGE RULE: Detect the user's language and respond in the SAME language.
+- If Uzbek → respond in Uzbek
+- If Russian → respond in Russian
+- If English → respond in English
+Default greeting language: Uzbek
 
-Rules:
-1. If the user's request is missing required info, ask ONE question at a time
-2. Required for CREATE_TASK: name (ask if missing)
-3. Optional but ask if not clearly provided: category, priority, owner, deadline
-4. Before performing any action, show a confirmation summary and ask "Confirm?" (or "Tasdiqlaysizmi?" or "Подтверждаете?")
-5. After user confirms (ha/yes/да/ok/confirm/✓ etc.), include the JSON action in your response
-6. Keep responses concise — max 2-3 sentences
-7. Return JSON action at the END of your response ONLY when the user has confirmed. Format:
+Current context: ${currentPage} page | ${taskCount} tasks | Sprint: ${sprintName}
+
+AVAILABLE ACTIONS:
+- CREATE_TASK: create a main task (epic)
+- UPDATE_TASK: update any field on a task
+- CREATE_SUBTASK: add a sprint task under a main task
+- CHANGE_STATUS: change task or sprint task status
+- ASSIGN_TASK: set task owner/assignee
+- SET_DEADLINE: set or update deadline
+- QUERY_TASKS: answer questions about existing tasks
+
+CONVERSATION RULES:
+1. Ask ONE question at a time if info is missing
+2. For CREATE_TASK: name is required. Ask for it if missing.
+3. Gather optional fields naturally: category, priority, owner, deadline
+4. Before ANY action: show a summary and ask confirmation in user's language
+   - Uzbek: "Tasdiqlaysizmi?"
+   - Russian: "Подтверждаете?"
+   - English: "Confirm?"
+5. Execute action ONLY after user confirms (ha/yes/да/ok/✓/confirm/tasdiqlash)
+6. Return JSON at the END of response when user confirmed. ONE block only:
    {"action": "ACTION_NAME", "data": {...}}
-   CRITICAL: Return ONLY ONE JSON block per response. Never emit two action JSON blocks.
-   If you need to do multiple things (e.g. create task + subtask), do them one at a time across turns.
-8. After executing an action, offer a follow-up: "Sprint task qo'shasizmi?" or "Anything else?"
-9. CRITICAL — For CREATE_TASK, the "data" object MUST include EVERY field that was discussed or inferred:
-   - name: always required
-   - category: include if mentioned or inferable (use exact category names from the list)
-   - priority: include if mentioned (default "medium" if not discussed)
-   - task_owner: include if an owner/assignee was mentioned
-   - deadline: include as ISO 8601 string if a date was mentioned
-   Example with all fields: {"action":"CREATE_TASK","data":{"name":"Setup CI/CD","category":"IT Operations","priority":"high","task_owner":"devops@company.com","deadline":"2026-04-18T00:00:00Z"}}
-   Never omit fields that were discussed — fill in everything you know.
+7. Never emit two JSON action blocks in one response
+8. After action: offer follow-up in same language
 
-Task categories (use exactly): Platform Management, Course Management, IT Operations, Administrative / Office, Finance & Billing, Technical Support, Data & Analytics, Telephony/CRM, Others
-Task priority values: low, medium, high, critical
-Main task status values: backlog, in_progress, blocked, stopped, done
-Sprint task status values: not_started, in_progress, done, partly_completed, blocked, stopped`
+TASK FIELD RULES — for CREATE_TASK data object, include ALL known fields:
+- name: required
+- category (exact): Platform Management | Course Management | IT Operations | Administrative / Office | Finance & Billing | Technical Support | Data & Analytics | Telephony/CRM | Others
+- priority: low | medium | high | critical (default: medium)
+- task_owner: email or name if mentioned
+- deadline: ISO 8601 if date mentioned
+
+Status values:
+- main_task: backlog | in_progress | blocked | stopped | done
+- sprint_task: not_started | in_progress | done | partly_completed | blocked | stopped`
 }
 
 // ─── Action JSON extraction ───────────────────────────────────────────────────
@@ -468,24 +473,44 @@ export async function POST(request: NextRequest) {
     // 3. Build system prompt from context
     const systemPrompt = buildSystemPrompt(context)
 
-    // 4. Call Claude Haiku 4.5
-    const claudeRes = await anthropic.messages.create({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      system:     systemPrompt,
-      messages:   messages.map((m) => ({ role: m.role, content: m.content })),
-    })
+    // 4. Call AI — try Anthropic first, fall back to Groq if key missing or error
+    let rawReply = ''
 
-    const rawReply: string = (
-      claudeRes.content[0]?.type === 'text' ? claudeRes.content[0].text : ''
-    ).trim()
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        const claudeRes = await anthropic.messages.create({
+          model:      'claude-haiku-4-5-20251001',
+          max_tokens: 512,
+          system:     systemPrompt,
+          messages:   messages.map(m => ({ role: m.role, content: m.content })),
+        })
+        rawReply = (claudeRes.content[0]?.type === 'text' ? claudeRes.content[0].text : '').trim()
+      } catch (err) {
+        console.error('[chat/route] Anthropic error, falling back to Groq:', err)
+      }
+    }
+
+    if (!rawReply && process.env.GROQ_API_KEY) {
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model:       'llama-3.3-70b-versatile',
+          temperature: 0.3,
+          max_tokens:  512,
+          messages:    [{ role: 'system', content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))],
+        }),
+      })
+      if (groqRes.ok) {
+        const groqJson = await groqRes.json()
+        rawReply = (groqJson.choices?.[0]?.message?.content ?? '').trim()
+      } else {
+        console.error('[chat/route] Groq error:', await groqRes.text())
+      }
+    }
 
     if (!rawReply) {
-      console.error('[chat/route] Claude returned an empty reply.')
-      return NextResponse.json(
-        { success: false, error: 'AI returned an empty response.' },
-        { status: 502 },
-      )
+      return NextResponse.json({ success: false, error: 'AI service unavailable. Check ANTHROPIC_API_KEY or GROQ_API_KEY.' }, { status: 502 })
     }
 
     // 5. Extract action JSON from the reply (if present)

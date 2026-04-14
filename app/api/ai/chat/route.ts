@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import Anthropic from '@anthropic-ai/sdk'
 import { createServerClient } from '@/lib/supabase-server'
 import type { TaskPriority, MainTaskStatus, SprintTaskStatus } from '@/types/database'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -465,41 +468,20 @@ export async function POST(request: NextRequest) {
     // 3. Build system prompt from context
     const systemPrompt = buildSystemPrompt(context)
 
-    // 4. Call Groq API
-    // messages already contains full conversation history; prepend system message
-    const groqMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ]
-
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.3,
-        max_tokens: 512,
-        messages: groqMessages,
-      }),
+    // 4. Call Claude Haiku 4.5
+    const claudeRes = await anthropic.messages.create({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system:     systemPrompt,
+      messages:   messages.map((m) => ({ role: m.role, content: m.content })),
     })
 
-    if (!groqRes.ok) {
-      const errText = await groqRes.text()
-      console.error('[chat/route] Groq API error:', errText)
-      return NextResponse.json(
-        { success: false, error: 'AI service error. Please try again.' },
-        { status: 502 },
-      )
-    }
-
-    const groqJson = await groqRes.json()
-    const rawReply: string = (groqJson.choices?.[0]?.message?.content ?? '').trim()
+    const rawReply: string = (
+      claudeRes.content[0]?.type === 'text' ? claudeRes.content[0].text : ''
+    ).trim()
 
     if (!rawReply) {
-      console.error('[chat/route] Groq returned an empty reply.')
+      console.error('[chat/route] Claude returned an empty reply.')
       return NextResponse.json(
         { success: false, error: 'AI returned an empty response.' },
         { status: 502 },

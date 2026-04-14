@@ -481,23 +481,27 @@ export default function AIAgent() {
                   animation:      'aiMsgIn 0.25s ease-out',
                 }}
               >
-                {/* No background box — just text with subtle contrast */}
+                {/* No background box — bare text with a side accent */}
                 <div style={{
-                  maxWidth:   '78%',
-                  padding:    msg.role === 'user' ? '2px 0' : '2px 0',
-                  fontSize:   'clamp(13px, 1.5vw, 15px)',
-                  color:      msg.isLoading
-                    ? 'rgba(255,255,255,0.45)'
+                  maxWidth:    'min(78%, 520px)',
+                  fontSize:    'clamp(13px, 1.4vw, 15px)',
+                  color:       msg.isLoading
+                    ? 'rgba(255,255,255,0.4)'
                     : msg.role === 'user'
-                      ? 'rgba(230,230,255,0.9)'
-                      : 'rgba(226,228,233,0.95)',
-                  lineHeight: 1.65,
-                  textShadow: '0 1px 6px rgba(0,0,0,0.6)',
-                  fontWeight: msg.role === 'user' ? 400 : 400,
-                  borderLeft: msg.role === 'assistant' && !msg.isLoading
-                    ? '2px solid rgba(111,91,255,0.5)'
+                      ? 'rgba(220,215,255,0.92)'   // soft lavender for user
+                      : 'rgba(226,228,233,0.95)',   // near-white for assistant
+                  lineHeight:  1.7,
+                  textShadow:  '0 1px 8px rgba(0,0,0,0.7)',
+                  textAlign:   msg.role === 'user' ? 'right' : 'left',
+                  // assistant: left purple accent; user: right accent
+                  borderLeft:  msg.role === 'assistant' && !msg.isLoading
+                    ? '2px solid rgba(111,91,255,0.55)'
                     : 'none',
-                  paddingLeft: msg.role === 'assistant' && !msg.isLoading ? 12 : 0,
+                  borderRight: msg.role === 'user'
+                    ? '2px solid rgba(111,91,255,0.4)'
+                    : 'none',
+                  paddingLeft:  msg.role === 'assistant' && !msg.isLoading ? 12 : 0,
+                  paddingRight: msg.role === 'user' ? 12 : 0,
                 }}>
                   {msg.isLoading ? (
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -533,20 +537,23 @@ export default function AIAgent() {
               </div>
             ))}
 
-            {/* Live recording — no bubble, just italic text */}
+            {/* Live recording — same style as user message */}
             {isRecording && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', animation: 'aiMsgIn 0.2s ease-out' }}>
                 <div style={{
-                  maxWidth:   '78%',
-                  fontSize:   'clamp(13px, 1.5vw, 15px)',
-                  color:      'rgba(200,195,255,0.85)',
-                  lineHeight: 1.65,
-                  textShadow: '0 1px 6px rgba(0,0,0,0.6)',
-                  fontStyle:  'italic',
+                  maxWidth:    'min(78%, 520px)',
+                  fontSize:    'clamp(13px, 1.4vw, 15px)',
+                  color:       'rgba(200,195,255,0.75)',
+                  lineHeight:  1.7,
+                  textShadow:  '0 1px 8px rgba(0,0,0,0.7)',
+                  textAlign:   'right',
+                  borderRight: '2px solid rgba(111,91,255,0.3)',
+                  paddingRight: 12,
+                  fontStyle:   'italic',
                 }}>
                   {input || interimText
                     ? <>{input}{interimText}</>
-                    : <span style={{ color: 'rgba(180,175,240,0.55)' }}>Listening...</span>
+                    : <span style={{ color: 'rgba(160,155,220,0.5)' }}>Listening...</span>
                   }
                   <span style={{ animation: 'aiCursor 0.9s step-end infinite', fontStyle: 'normal' }}>|</span>
                 </div>

@@ -135,7 +135,7 @@ export default function ReportPage() {
     <div className="min-h-screen bg-[#18232d]">
 
       {/* Sticky header */}
-      <div className="sticky top-0 z-30 h-14 flex items-center justify-between pl-14 pr-4 md:px-7 border-b border-[#2a3f52] bg-[#18232d]">
+      <div className="sticky top-0 z-30 h-14 flex items-center justify-between px-7 border-b border-[#2a3f52] bg-[#18232d]">
         <div className="flex items-center gap-2.5">
           <BarChart2 size={16} className="text-[#3f9cfb]" />
           <h1 className="text-xl font-semibold text-white">Weekly Reports</h1>

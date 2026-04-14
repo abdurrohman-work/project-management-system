@@ -386,7 +386,7 @@ export default function DashboardPage() {
       />
 
       {/* ── Sticky page header ── */}
-      <div className="h-14 border-b border-[#2a3f52] flex items-center justify-between pl-14 pr-4 md:px-7 bg-[#18232d] sticky top-0 z-30">
+      <div className="h-14 border-b border-[#2a3f52] flex items-center justify-between px-7 bg-[#18232d] sticky top-0 z-30">
         <div className="flex items-center gap-2.5">
           <LayoutDashboard size={16} className="text-[#3f9cfb]" />
           <h1 className="m-0 text-sm font-semibold text-white">Dashboard</h1>

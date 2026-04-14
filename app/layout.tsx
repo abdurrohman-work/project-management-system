@@ -30,7 +30,7 @@ export default function RootLayout({
       </head>
       <body className="flex min-h-screen" style={{ backgroundColor: '#18232d' }}>
         <Sidebar />
-        <main className="flex-1 min-h-screen md:ml-[250px]">
+        <main className="flex-1 min-h-screen" style={{ marginLeft: 250 }}>
           {children}
         </main>
       </body>

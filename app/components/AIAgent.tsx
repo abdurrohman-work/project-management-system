@@ -60,44 +60,46 @@ export default function AIAgent() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    canvas.width  = window.innerWidth
-    canvas.height = window.innerHeight
+    canvas.width  = canvas.offsetWidth  || window.innerWidth
+    canvas.height = canvas.offsetHeight || window.innerHeight
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
     const lines    = 45
-    const centerY  = canvas.height - 72
+    const centerY  = canvas.height - 80
     const t        = tRef.current
     const isActive = isRecording || isGenerating
 
-    // Set canvas opacity
-    canvas.style.opacity = isActive ? '1' : '0.4'
+    // Opacity: always visible, brighter when active
+    canvas.style.opacity = isActive ? '1' : '0.85'
 
+    // Purple-indigo gradient matching app primary #6F5BFF
     const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0)
-    gradient.addColorStop(0,    'rgba(17,27,36,0)')
-    gradient.addColorStop(0.25, 'rgba(63,156,251,0.4)')
-    gradient.addColorStop(0.5,  'rgba(96,165,250,0.7)')
-    gradient.addColorStop(0.75, 'rgba(63,156,251,0.4)')
-    gradient.addColorStop(1,    'rgba(17,27,36,0)')
+    gradient.addColorStop(0,    'rgba(21, 22, 29, 0)')
+    gradient.addColorStop(0.25, 'rgba(111, 91, 255, 0.45)')
+    gradient.addColorStop(0.5,  'rgba(96,  165, 250, 0.75)')
+    gradient.addColorStop(0.75, 'rgba(111, 91, 255, 0.45)')
+    gradient.addColorStop(1,    'rgba(21, 22, 29, 0)')
 
     ctx.globalCompositeOperation = 'screen'
     ctx.strokeStyle = gradient
 
     for (let i = 0; i < lines; i++) {
       ctx.beginPath()
-      ctx.lineWidth = i === 0 ? 1.5 : 0.4
+      ctx.lineWidth = i === 0 ? 2 : 0.5
       const phase = i * 0.12
 
       for (let x = 0; x <= canvas.width; x += 8) {
-        const nx       = x / canvas.width
-        const envelope = Math.exp(-Math.pow((nx - 0.5) * 5, 2))
-        const arch     = Math.exp(-Math.pow((nx - 0.5) * 6.5, 2)) * 110
-        const wave1    = Math.sin(nx * 10 + t + phase) * 35
-        const wave2    = Math.cos(nx * 16 - t * 0.8 + phase * 1.3) * 20
+        const nx         = x / canvas.width
+        const envelope   = Math.exp(-Math.pow((nx - 0.5) * 5, 2))
+        const arch       = Math.exp(-Math.pow((nx - 0.5) * 6.5, 2)) * 110
+        const wave1      = Math.sin(nx * 10 + t + phase) * 35
+        const wave2      = Math.cos(nx * 16 - t * 0.8 + phase * 1.3) * 20
+        // idle: 0.65 so waves are clearly visible; recording: loud, generating: medium
         const audioScale = isRecording
           ? (1 + vol * 0.015)
-          : isGenerating ? 1.1 : 0.2
-        const audioBump = Math.sin(nx * 15 - t * 2.5) * (vol * 0.8)
+          : isGenerating ? 1.1 : 0.65
+        const audioBump  = Math.sin(nx * 15 - t * 2.5) * (vol * 0.8)
         const y = centerY - arch + (wave1 + wave2 + audioBump) * envelope * audioScale
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
       }
@@ -335,166 +337,182 @@ export default function AIAgent() {
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
 
+  const PRIMARY    = '#6F5BFF'
+  const PRIMARY_LO = 'rgba(111,91,255,0.35)'
+  const PRIMARY_MD = 'rgba(111,91,255,0.55)'
+
   return (
     <>
-      {/* ── Floating button ─────────────────────────────────────────── */}
+      {/* ── Floating sparkle button ──────────────────────────────────── */}
       {btnVisible && (
         <button
           onClick={openOverlay}
           style={{
             position:        'fixed',
-            bottom:          24,
+            bottom:          28,
             left:            '50%',
             transform:       'translateX(-50%)',
             width:           56,
             height:          56,
             borderRadius:    '50%',
-            backgroundColor: '#3f9cfb',
+            backgroundColor: PRIMARY,
             border:          'none',
             cursor:          'pointer',
             display:         'flex',
             alignItems:      'center',
             justifyContent:  'center',
             zIndex:          1000,
-            boxShadow:       '0 0 20px rgba(63,156,251,0.5)',
+            boxShadow:       `0 0 24px ${PRIMARY_MD}`,
             transition:      'transform 0.2s, box-shadow 0.2s',
           }}
           onMouseEnter={e => {
             e.currentTarget.style.transform = 'translateX(-50%) scale(1.08)'
-            e.currentTarget.style.boxShadow = '0 0 32px rgba(63,156,251,0.75)'
+            e.currentTarget.style.boxShadow = `0 0 36px rgba(111,91,255,0.75)`
           }}
           onMouseLeave={e => {
             e.currentTarget.style.transform = 'translateX(-50%) scale(1)'
-            e.currentTarget.style.boxShadow = '0 0 20px rgba(63,156,251,0.5)'
+            e.currentTarget.style.boxShadow = `0 0 24px ${PRIMARY_MD}`
           }}
         >
           <Sparkles size={22} color="#fff" />
         </button>
       )}
 
-      {/* ── Full-screen overlay ──────────────────────────────────────── */}
+      {/* ── Overlay — starts after sidebar (240px) ───────────────────── */}
       {isOpen && (
         <div
           onClick={e => { if (e.target === e.currentTarget) closeOverlay() }}
           style={{
-            position:   'fixed',
-            inset:      0,
-            zIndex:     2000,
-            background: 'radial-gradient(circle at center, rgba(24,35,45,0.92), rgba(17,27,36,0.82))',
-            backdropFilter: 'blur(8px)',
-            display:    'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
+            position:        'fixed',
+            top:             0,
+            left:            240,   // leave sidebar visible
+            right:           0,
+            bottom:          0,
+            zIndex:          900,
+            background:      'radial-gradient(circle at 50% 60%, rgba(21,22,29,0.88), rgba(15,16,22,0.80))',
+            backdropFilter:  'blur(10px)',
+            display:         'flex',
+            flexDirection:   'column',
+            alignItems:      'center',
+            overflow:        'hidden',
           }}
         >
-          {/* Close button top-right */}
+          {/* Close button — top-right */}
           <button
             onClick={closeOverlay}
             style={{
-              position: 'absolute', top: 20, right: 20,
-              background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: '50%', width: 36, height: 36,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'rgba(255,255,255,0.7)',
+              position:        'absolute', top: 16, right: 20,
+              background:      'rgba(255,255,255,0.07)',
+              border:          '1px solid rgba(255,255,255,0.12)',
+              borderRadius:    '50%', width: 34, height: 34,
+              cursor:          'pointer',
+              display:         'flex', alignItems: 'center', justifyContent: 'center',
+              color:           'rgba(255,255,255,0.65)',
+              zIndex:          10,
+              transition:      'background 0.15s',
             }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.13)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
           >
-            <X size={16} />
+            <X size={15} />
           </button>
 
-          {/* Ambient glow */}
+          {/* Ambient glow behind button */}
           <div style={{
             position:        'absolute',
-            top:             '50%',
+            bottom:          '-10%',
             left:            '50%',
-            transform:       `translate(-50%, -50%) scale(${isRecording || isGenerating ? 1.1 : 1})`,
-            width:           '60vw',
-            height:          '60vw',
+            transform:       `translateX(-50%) scale(${isRecording || isGenerating ? 1.15 : 1})`,
+            width:           '55vw',
+            height:          '55vw',
+            maxWidth:        700,
+            maxHeight:       700,
             borderRadius:    '50%',
             backgroundColor: isRecording || isGenerating
-              ? 'rgba(63,156,251,0.20)'
-              : 'rgba(63,156,251,0.10)',
-            filter:          'blur(120px)',
-            transition:      'all 0.6s ease',
+              ? 'rgba(111,91,255,0.18)'
+              : 'rgba(111,91,255,0.09)',
+            filter:          'blur(100px)',
+            transition:      'all 0.7s ease',
             pointerEvents:   'none',
           }} />
 
-          {/* Canvas ribbons */}
+          {/* Canvas ribbons — fills overlay */}
           <canvas
             ref={canvasRef}
             style={{
-              position:     'absolute',
-              inset:        0,
-              width:        '100%',
-              height:       '100%',
+              position:      'absolute',
+              inset:         0,
+              width:         '100%',
+              height:        '100%',
               pointerEvents: 'none',
-              transition:   'opacity 0.5s ease',
+              transition:    'opacity 0.4s ease',
             }}
           />
 
-          {/* Chat messages — left side, above center */}
+          {/* ── Chat message list — centered, scrollable ─────────────── */}
           <div style={{
-            position:      'absolute',
-            left:          40,
-            bottom:        160,
-            width:         420,
-            maxHeight:     '60vh',
+            flex:          1,
+            width:         '100%',
+            maxWidth:      620,
             overflowY:     'auto',
             display:       'flex',
             flexDirection: 'column',
-            gap:           12,
-            paddingBottom: 8,
+            justifyContent:'flex-end',
+            gap:            12,
+            padding:       '72px 24px 24px',
+            boxSizing:     'border-box',
+            position:      'relative',
+            zIndex:         5,
           }}>
             {messages.map((msg, i) => (
               <div
                 key={i}
                 style={{
-                  display:       'flex',
+                  display:        'flex',
                   justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                  animation:     i === 0 ? 'aiMsgIn 0.3s ease-out' : 'aiMsgIn 0.2s ease-out',
+                  animation:      'aiMsgIn 0.25s ease-out',
                 }}
               >
                 <div style={{
-                  maxWidth:        '82%',
+                  maxWidth:        '80%',
                   backgroundColor: msg.role === 'user'
-                    ? 'rgba(42,63,82,0.92)'
-                    : 'rgba(30,45,61,0.92)',
-                  backdropFilter:  'blur(8px)',
+                    ? 'rgba(37,39,51,0.92)'
+                    : 'rgba(26,28,38,0.92)',
+                  backdropFilter:  'blur(10px)',
                   border:          msg.role === 'user'
-                    ? '1px solid rgba(63,156,251,0.2)'
-                    : '1px solid #2a3f52',
+                    ? `1px solid ${PRIMARY_LO}`
+                    : '1px solid rgba(255,255,255,0.08)',
                   borderRadius:    msg.role === 'user'
-                    ? '16px 16px 2px 16px'
-                    : '16px 16px 16px 2px',
-                  padding:   '10px 14px',
-                  fontSize:  13,
-                  color:     msg.isLoading ? 'rgba(255,255,255,0.5)' : '#e2e4e9',
-                  lineHeight: 1.55,
+                    ? '18px 18px 4px 18px'
+                    : '18px 18px 18px 4px',
+                  padding:    '12px 16px',
+                  fontSize:   14,
+                  color:      msg.isLoading ? 'rgba(255,255,255,0.45)' : '#e2e4e9',
+                  lineHeight: 1.6,
+                  boxShadow:  '0 2px 12px rgba(0,0,0,0.25)',
                 }}>
-                  {/* Loading dots */}
                   {msg.isLoading ? (
-                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '2px 0' }}>
+                    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                       {[0,1,2].map(d => (
                         <span key={d} style={{
-                          width: 6, height: 6, borderRadius: '50%',
-                          backgroundColor: '#3f9cfb',
+                          width: 7, height: 7, borderRadius: '50%',
+                          backgroundColor: PRIMARY,
                           animation: `aiDot 1.2s ease-in-out ${d * 0.2}s infinite`,
                           display: 'inline-block',
                         }} />
                       ))}
-                      <span style={{ marginLeft: 6, fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
-                        Tahlil qilinmoqda... ({fmtTimer(timer)})
+                      <span style={{ marginLeft: 6, fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                        {fmtTimer(timer)}s
                       </span>
                     </div>
                   ) : (
                     <>
                       {msg.content}
-                      {/* Action result pill */}
                       {msg.action_result?.display_id && (
                         <div style={{
-                          marginTop: 8, padding: '4px 10px',
-                          backgroundColor: 'rgba(74,222,128,0.12)',
-                          border: '1px solid rgba(74,222,128,0.3)',
+                          marginTop: 8, padding: '5px 10px',
+                          backgroundColor: 'rgba(74,222,128,0.1)',
+                          border: '1px solid rgba(74,222,128,0.28)',
                           borderRadius: 6, fontSize: 12, color: '#4ade80',
                           display: 'inline-flex', alignItems: 'center', gap: 5,
                         }}>
@@ -507,20 +525,25 @@ export default function AIAgent() {
               </div>
             ))}
 
-            {/* Live transcript bubble */}
-            {isRecording && (interimText || input) && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {/* Live recording bubble */}
+            {isRecording && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', animation: 'aiMsgIn 0.2s ease-out' }}>
                 <div style={{
-                  maxWidth: '82%',
-                  backgroundColor: 'rgba(42,63,82,0.92)',
-                  backdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(63,156,251,0.3)',
-                  borderRadius: '16px 16px 2px 16px',
-                  padding: '10px 14px',
-                  fontSize: 13, color: '#e2e4e9', lineHeight: 1.55,
+                  maxWidth:        '80%',
+                  backgroundColor: 'rgba(37,39,51,0.92)',
+                  backdropFilter:  'blur(10px)',
+                  border:          `1px solid ${PRIMARY_LO}`,
+                  borderRadius:    '18px 18px 4px 18px',
+                  padding:         '12px 16px',
+                  fontSize:        14, color: '#e2e4e9', lineHeight: 1.6,
+                  boxShadow:       '0 2px 12px rgba(0,0,0,0.25)',
+                  minWidth:        120,
                 }}>
-                  {input}{interimText}
-                  <span style={{ animation: 'aiCursor 1s step-end infinite', opacity: 1 }}>|</span>
+                  {input || interimText
+                    ? <>{input}{interimText}</>
+                    : <span style={{ color: 'rgba(255,255,255,0.4)' }}>Listening...</span>
+                  }
+                  <span style={{ animation: 'aiCursor 0.9s step-end infinite' }}>|</span>
                 </div>
               </div>
             )}
@@ -528,13 +551,15 @@ export default function AIAgent() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input area (shown when not recording) */}
+          {/* ── Text input (shown when not recording) ────────────────── */}
           {!isRecording && (
             <div style={{
-              position:        'absolute',
-              left:            40,
-              bottom:          100,
-              width:           420,
+              width:     '100%',
+              maxWidth:  620,
+              padding:   '0 24px 16px',
+              boxSizing: 'border-box',
+              position:  'relative',
+              zIndex:     5,
             }}>
               <textarea
                 value={input}
@@ -547,20 +572,21 @@ export default function AIAgent() {
                 style={{
                   width:           '100%',
                   boxSizing:       'border-box',
-                  backgroundColor: 'rgba(30,45,61,0.85)',
-                  backdropFilter:  'blur(8px)',
-                  border:          '1px solid #2a3f52',
-                  borderRadius:    10,
+                  backgroundColor: 'rgba(26,28,38,0.88)',
+                  backdropFilter:  'blur(10px)',
+                  border:          '1px solid rgba(255,255,255,0.1)',
+                  borderRadius:    12,
                   color:           '#e2e4e9',
-                  fontSize:        13,
+                  fontSize:        14,
                   lineHeight:      1.5,
-                  padding:         '10px 14px',
+                  padding:         '11px 16px',
                   outline:         'none',
                   resize:          'none',
                   fontFamily:      'inherit',
+                  transition:      'border-color 0.15s',
                 }}
-                onFocus={e => (e.currentTarget.style.borderColor = '#3f9cfb')}
-                onBlur={e  => (e.currentTarget.style.borderColor = '#2a3f52')}
+                onFocus={e => (e.currentTarget.style.borderColor = PRIMARY_LO)}
+                onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)')}
               />
             </div>
           )}
@@ -568,48 +594,34 @@ export default function AIAgent() {
           {/* ── Morphing center button + orbital rings ───────────────── */}
           <div style={{
             position:       'relative',
-            marginBottom:   28,
+            marginBottom:   32,
             display:        'flex',
             alignItems:     'center',
             justifyContent: 'center',
             width:           148,
             height:          148,
+            flexShrink:      0,
             zIndex:          10,
           }}>
-            {/* Orbital rings — only visible when active */}
+            {/* Orbital rings — visible when recording or has text */}
             {(isRecording || input.trim()) && (
               <>
-                {/* Ring 1 — 96px */}
                 <div className="animate-spin" style={{
-                  position:     'absolute',
-                  width:        96, height: 96,
-                  borderRadius: '50%',
-                  border:       '1px solid transparent',
-                  borderTop:    '1px solid rgba(63,156,251,0.8)',
-                  borderRight:  '1px solid rgba(63,156,251,0.4)',
-                  borderBottom: '1px solid rgba(63,156,251,0.4)',
-                  borderLeft:   '1px solid rgba(63,156,251,0.4)',
+                  position: 'absolute', width: 96, height: 96, borderRadius: '50%',
+                  border: '1px solid rgba(111,91,255,0.15)',
+                  borderTop: `1px solid rgba(111,91,255,0.85)`,
                   animationDuration: '4s',
                 }} />
-                {/* Ring 2 — 112px reverse */}
                 <div className="animate-spin" style={{
-                  position:     'absolute',
-                  width:        112, height: 112,
-                  borderRadius: '50%',
-                  border:       '1px solid transparent',
+                  position: 'absolute', width: 114, height: 114, borderRadius: '50%',
+                  border: '1px solid rgba(96,165,250,0.1)',
                   borderBottom: '1px solid rgba(96,165,250,0.6)',
-                  borderTop:    '1px solid rgba(96,165,250,0.2)',
-                  borderLeft:   '1px solid rgba(96,165,250,0.2)',
-                  borderRight:  '1px solid rgba(96,165,250,0.2)',
                   animationDuration: '5s',
                   animationDirection: 'reverse',
                 }} />
-                {/* Ring 3 — 128px static */}
                 <div style={{
-                  position:     'absolute',
-                  width:        128, height: 128,
-                  borderRadius: '50%',
-                  border:       '1px solid rgba(63,156,251,0.1)',
+                  position: 'absolute', width: 130, height: 130, borderRadius: '50%',
+                  border: `1px solid rgba(111,91,255,0.08)`,
                 }} />
               </>
             )}
@@ -617,92 +629,96 @@ export default function AIAgent() {
             {/* Center button — 76px */}
             <button
               onClick={isRecording ? stopVoice : (input.trim() ? () => sendMessage() : toggleVoice)}
-              disabled={!isRecording && !input.trim() && !isGenerating}
               style={{
                 position:        'relative',
                 width:           76,
                 height:          76,
                 borderRadius:    '50%',
-                backgroundColor: (isRecording || input.trim()) ? '#3f9cfb' : 'rgba(63,156,251,0.18)',
-                border:          `2px solid ${(isRecording || input.trim()) ? '#3f9cfb' : 'rgba(63,156,251,0.3)'}`,
-                cursor:          (isRecording || input.trim()) ? 'pointer' : 'default',
+                backgroundColor: isRecording
+                  ? PRIMARY
+                  : input.trim() ? PRIMARY : 'rgba(111,91,255,0.22)',
+                border:          `2px solid ${isRecording ? PRIMARY : input.trim() ? PRIMARY : 'rgba(111,91,255,0.4)'}`,
+                cursor:          'pointer',
                 display:         'flex',
                 flexDirection:   'column',
                 alignItems:      'center',
                 justifyContent:  'center',
                 gap:             3,
-                filter:          (isRecording || input.trim()) ? 'none' : 'grayscale(1)',
                 transition:      'all 0.3s ease',
                 overflow:        'hidden',
                 zIndex:          2,
+                boxShadow:       isRecording
+                  ? `0 0 28px rgba(111,91,255,0.6)`
+                  : input.trim() ? `0 0 20px rgba(111,91,255,0.4)` : 'none',
               }}
             >
               {/* PAUSE state (recording) */}
               <div style={{
-                position:  'absolute',
-                transform: isRecording ? 'translateY(0)' : 'translateY(-40px)',
-                opacity:   isRecording ? 1 : 0,
+                position:   'absolute',
+                transform:  isRecording ? 'translateY(0)' : 'translateY(-40px)',
+                opacity:    isRecording ? 1 : 0,
                 transition: 'all 0.25s ease',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
               }}>
-                <Pause size={20} color="#fff" />
-                <span style={{ fontSize: 9, color: '#fff', fontWeight: 700, letterSpacing: 1 }}>
+                <Pause size={22} color="#fff" fill="#fff" />
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.85)', fontWeight: 700, letterSpacing: 1 }}>
                   {fmtTimer(timer)}
                 </span>
               </div>
 
-              {/* SEND state (has text) */}
+              {/* SEND state (has text, not recording) */}
               <div style={{
-                position:  'absolute',
-                transform: (!isRecording && input.trim()) ? 'translateY(0)' : 'translateY(40px)',
-                opacity:   (!isRecording && input.trim()) ? 1 : 0,
+                position:   'absolute',
+                transform:  (!isRecording && input.trim()) ? 'translateY(0)' : 'translateY(40px)',
+                opacity:    (!isRecording && input.trim()) ? 1 : 0,
                 transition: 'all 0.25s ease',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
               }}>
                 <Send size={20} color="#fff" />
-                <span style={{ fontSize: 9, color: '#fff', fontWeight: 700, letterSpacing: 1 }}>SEND</span>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.85)', fontWeight: 700, letterSpacing: 1 }}>SEND</span>
               </div>
 
-              {/* MIC state (idle) */}
+              {/* SPARKLES state (idle) */}
               <div style={{
-                position:  'absolute',
-                transform: (!isRecording && !input.trim()) ? 'translateY(0)' : 'translateY(40px)',
-                opacity:   (!isRecording && !input.trim()) ? 0.5 : 0,
+                position:   'absolute',
+                transform:  (!isRecording && !input.trim()) ? 'translateY(0)' : 'translateY(40px)',
+                opacity:    (!isRecording && !input.trim()) ? 1 : 0,
                 transition: 'all 0.25s ease',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <Sparkles size={20} color="#3f9cfb" />
+                <Sparkles size={22} color="rgba(255,255,255,0.6)" />
               </div>
             </button>
 
-            {/* Mic toggle button — outside the center button */}
+            {/* Mic toggle — small pill below center button when idle */}
             {!isRecording && (
               <button
                 onClick={toggleVoice}
                 title="Ovozli kiritish"
                 style={{
                   position:        'absolute',
-                  right:           -4,
                   bottom:          -4,
-                  width:           32,
-                  height:          32,
+                  right:           -4,
+                  width:           30,
+                  height:          30,
                   borderRadius:    '50%',
-                  backgroundColor: 'rgba(30,45,61,0.95)',
-                  border:          '1px solid #2a3f52',
+                  backgroundColor: 'rgba(21,22,29,0.95)',
+                  border:          '1px solid rgba(255,255,255,0.1)',
                   cursor:          'pointer',
                   display:         'flex',
                   alignItems:      'center',
                   justifyContent:  'center',
-                  color:           '#6b8aaa',
-                  fontSize:        14,
-                  zIndex:          3,
+                  fontSize:        13,
+                  zIndex:           3,
+                  transition:      'background 0.15s',
                 }}
+                onMouseEnter={e => (e.currentTarget.style.background = `rgba(111,91,255,0.2)`)}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(21,22,29,0.95)')}
               >
                 🎤
               </button>
             )}
           </div>
-
         </div>
       )}
     </>

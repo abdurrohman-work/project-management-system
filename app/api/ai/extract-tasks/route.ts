@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import Anthropic from '@anthropic-ai/sdk'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const CATEGORIES = [
   'Platform Management', 'Course Management', 'IT Operations',
@@ -32,31 +35,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'text is required' }, { status: 400 })
     }
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method:  'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify({
-        model:       'llama-3.3-70b-versatile',
-        temperature: 0.1,
-        max_tokens:  512,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user',   content: text.trim() },
-        ],
-      }),
+    const claudeRes = await anthropic.messages.create({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system:     SYSTEM_PROMPT,
+      messages:   [{ role: 'user', content: text.trim() }],
     })
 
-    if (!groqRes.ok) {
-      const err = await groqRes.text()
-      console.error('Groq error:', err)
-      return NextResponse.json({ success: false, error: 'AI service error.' }, { status: 502 })
-    }
-
-    const groqJson = await groqRes.json()
-    const raw      = (groqJson.choices?.[0]?.message?.content ?? '').trim()
+    const raw = (
+      claudeRes.content[0]?.type === 'text' ? claudeRes.content[0].text : ''
+    ).trim()
 
     // Strip accidental markdown fences
     const clean = raw

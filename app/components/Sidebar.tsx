@@ -17,12 +17,12 @@ const NAV_LINKS = [
 ]
 
 const C = {
-  sidebar:  '#1E2028',
-  border:   '#363940',
-  primary:  '#7B68EE',
+  sidebar:  '#1B1D25',
+  border:   '#262833',
+  primary:  '#6F5BFF',
   text:     '#E2E4E9',
-  secondary:'#9BA0AB',
-  muted:    '#6B7280',
+  secondary:'#94A3B8',
+  muted:    '#64748B',
 }
 
 export default function Sidebar() {
@@ -31,7 +31,7 @@ export default function Sidebar() {
   return (
     <aside
       style={{
-        width: 250,
+        width: 240,
         backgroundColor: C.sidebar,
         borderRight: `1px solid ${C.border}`,
         position: 'fixed',
@@ -44,24 +44,25 @@ export default function Sidebar() {
       {/* Workspace header */}
       <div
         style={{
-          padding: '16px 20px',
+          padding: '0 20px',
           borderBottom: `1px solid ${C.border}`,
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          height: 56,
+          height: 64,
+          flexShrink: 0,
         }}
       >
         <div
           style={{
-            width: 28,
-            height: 28,
-            borderRadius: 6,
+            width: 32,
+            height: 32,
+            borderRadius: 8,
             backgroundColor: C.primary,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: 700,
             color: '#fff',
             flexShrink: 0,
@@ -70,25 +71,25 @@ export default function Sidebar() {
           M
         </div>
         <div>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.2 }}>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>
             Mohir.dev
           </p>
-          <p style={{ margin: 0, fontSize: 11, color: C.muted, lineHeight: 1.2 }}>
+          <p style={{ margin: 0, fontSize: 11, color: C.muted, lineHeight: 1.3 }}>
             Workspace
           </p>
         </div>
       </div>
 
       {/* Nav section */}
-      <div style={{ padding: '12px 8px', flex: 1 }}>
+      <div style={{ padding: '14px 10px', flex: 1 }}>
         <p
           style={{
-            margin: '0 0 6px',
+            margin: '0 0 8px',
             padding: '0 8px',
             fontSize: 11,
             fontWeight: 600,
             textTransform: 'uppercase',
-            letterSpacing: '0.06em',
+            letterSpacing: '0.07em',
             color: C.muted,
           }}
         >
@@ -106,14 +107,15 @@ export default function Sidebar() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 10,
-                  padding: '7px 10px',
+                  padding: '8px 10px',
                   borderRadius: 6,
                   textDecoration: 'none',
                   fontSize: 13,
                   fontWeight: isActive ? 500 : 400,
                   color: isActive ? '#fff' : C.secondary,
-                  backgroundColor: isActive ? 'rgba(123,104,238,0.14)' : 'transparent',
-                  transition: 'background-color 0.12s, color 0.12s',
+                  backgroundColor: isActive ? 'rgba(111,91,255,0.14)' : 'transparent',
+                  border: isActive ? '1px solid rgba(111,91,255,0.35)' : '1px solid transparent',
+                  transition: 'background-color 0.12s, color 0.12s, border-color 0.12s',
                 }}
                 onMouseEnter={e => {
                   if (!isActive) {
@@ -142,7 +144,7 @@ export default function Sidebar() {
       {/* Footer */}
       <div
         style={{
-          padding: '12px 16px',
+          padding: '12px 18px',
           borderTop: `1px solid ${C.border}`,
           fontSize: 11,
           color: C.muted,

@@ -20,9 +20,9 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body className="flex min-h-screen" style={{ backgroundColor: '#1A1D23' }}>
+      <body className="flex min-h-screen" style={{ backgroundColor: '#15161D' }}>
         <Sidebar />
-        <main className="flex-1 min-h-screen" style={{ marginLeft: 250 }}>
+        <main className="flex-1 min-h-screen" style={{ marginLeft: 240 }}>
           {children}
         </main>
         <AIAgent />

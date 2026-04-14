@@ -13,18 +13,18 @@ import { ConfirmDialog }           from '@/app/components/ConfirmDialog'
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const C = {
-  bg:           '#1A1D23',
-  sidebar:      '#1E2028',
-  surface:      '#2A2D35',
-  surfaceHover: '#2E323A',
-  elevated:     '#31353F',
-  border:       '#363940',
-  borderHover:  '#4A4F5A',
-  primary:      '#7B68EE',
-  primaryHover: '#6C5CE7',
+  bg:           '#15161D',
+  sidebar:      '#1B1D25',
+  surface:      '#1E2029',
+  surfaceHover: '#252733',
+  elevated:     '#252535',
+  border:       '#262833',
+  borderHover:  '#313442',
+  primary:      '#6F5BFF',
+  primaryHover: '#5f4be6',
   text:         '#E2E4E9',
-  secondary:    '#9BA0AB',
-  muted:        '#6B7280',
+  secondary:    '#94A3B8',
+  muted:        '#64748B',
   danger:       '#EF4444',
 }
 
@@ -131,10 +131,10 @@ function ProgressBar({ value }: { value: number }) {
   const pct = Math.min(100, Math.max(0, value))
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ flex: 1, height: 6, backgroundColor: '#2a3f52', borderRadius: 9999, overflow: 'hidden' }}>
-        <div style={{ height: 6, width: `${pct}%`, backgroundColor: '#4ADE80', borderRadius: 9999, transition: 'width 0.4s ease' }} />
+      <div style={{ flex: 1, height: 5, backgroundColor: '#2A2B3B', borderRadius: 9999, overflow: 'hidden' }}>
+        <div style={{ height: 5, width: `${pct}%`, backgroundColor: C.primary, borderRadius: 9999, transition: 'width 0.4s ease' }} />
       </div>
-      <span style={{ color: C.secondary, fontSize: 11, minWidth: 30, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ color: C.muted, fontSize: 10, minWidth: 28, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         {pct.toFixed(0)}%
       </span>
     </div>
@@ -168,10 +168,10 @@ function OwnerAvatar({ value }: { value: string | null }) {
 
 function MetricCard({ label, value, color, sub }: { label: string; value: number; color: string; sub?: string }) {
   return (
-    <div style={{ backgroundColor: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '16px 20px' }}>
-      <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.muted }}>{label}</p>
-      <p style={{ margin: 0, fontSize: 28, fontWeight: 700, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
-      {sub && <p style={{ margin: '6px 0 0', fontSize: 11, color: C.muted }}>{sub}</p>}
+    <div style={{ backgroundColor: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}>
+      <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted }}>{label}</p>
+      <p style={{ margin: 0, fontSize: 30, fontWeight: 700, color, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
+      {sub && <p style={{ margin: '4px 0 0', fontSize: 11, color: C.muted }}>{sub}</p>}
     </div>
   )
 }
@@ -451,26 +451,26 @@ export default function DashboardPage() {
       {/* ── Sticky page header ── */}
       <div
         style={{
-          height:       56,
-          borderBottom: `1px solid ${C.border}`,
-          display:      'flex',
-          alignItems:   'center',
-          justifyContent: 'space-between',
-          padding:      '0 28px',
-          backgroundColor: C.bg,
-          position:     'sticky',
-          top:          0,
-          zIndex:       30,
+          height:          64,
+          borderBottom:    `1px solid ${C.border}`,
+          display:         'flex',
+          alignItems:      'center',
+          justifyContent:  'space-between',
+          padding:         '0 28px',
+          backgroundColor: C.sidebar,
+          position:        'sticky',
+          top:             0,
+          zIndex:          30,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <LayoutDashboard size={16} style={{ color: C.primary }} />
-          <h1 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: C.text }}>Dashboard</h1>
+          <LayoutDashboard size={18} style={{ color: C.primary }} />
+          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: C.text }}>Dashboard</h1>
           <span
             style={{
-              backgroundColor: 'rgba(123,104,238,0.12)',
+              backgroundColor: 'rgba(111,91,255,0.12)',
               color: C.primary, fontSize: 11, fontWeight: 500,
-              padding: '2px 8px', borderRadius: 9999,
+              padding: '2px 9px', borderRadius: 9999,
             }}
           >
             {loading ? '…' : total}
@@ -483,13 +483,13 @@ export default function DashboardPage() {
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               backgroundColor: C.primary, color: '#fff', border: 'none',
-              borderRadius: 7, padding: '7px 14px', fontSize: 13, fontWeight: 500,
+              borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500,
               cursor: 'pointer', transition: 'background-color 0.12s',
             }}
             onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.primaryHover)}
             onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.primary)}
           >
-            <Plus size={14} />
+            <Plus size={15} />
             New Task
           </button>
         </div>
@@ -498,15 +498,15 @@ export default function DashboardPage() {
       <div style={{ padding: '24px 28px' }}>
 
         {/* ── Metric cards ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
           {loading
             ? Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="skeleton" style={{ height: 88, borderRadius: 10 }} />
+                <div key={i} className="skeleton" style={{ height: 96, borderRadius: 10 }} />
               ))
             : <>
                 <MetricCard label="Total Tasks"  value={total}      color={C.text}    sub="all epics"         />
                 <MetricCard label="In Progress"  value={inProgress} color={C.primary} sub="currently active"  />
-                <MetricCard label="Blocked"      value={blocked}    color="#F87171"   sub="need attention"    />
+                <MetricCard label="Blocked"      value={blocked}    color="#EF4444"   sub="need attention"    />
                 <MetricCard label="Done"         value={done}       color="#4ADE80"   sub="completed"         />
               </>
           }
@@ -532,9 +532,9 @@ export default function DashboardPage() {
               onChange={e => setFilterText(e.target.value)}
               style={{
                 width: '100%', boxSizing: 'border-box',
-                backgroundColor: C.surface, border: `1px solid ${C.border}`,
-                borderRadius: 7, color: C.text, fontSize: 13,
-                padding: '7px 12px 7px 32px', outline: 'none', fontFamily: 'inherit',
+                backgroundColor: C.surfaceHover, border: `1px solid ${C.borderHover}`,
+                borderRadius: 8, color: C.text, fontSize: 13,
+                padding: '8px 12px 8px 32px', outline: 'none', fontFamily: 'inherit',
               }}
             />
             {filterText && (
@@ -553,12 +553,11 @@ export default function DashboardPage() {
               value={filterStatus}
               onChange={e => setFilterStatus(e.target.value as MainTaskStatus | '')}
               style={{
-                backgroundColor: filterStatus ? 'rgba(123,104,238,0.14)' : C.elevated,
+                backgroundColor: filterStatus ? 'rgba(111,91,255,0.14)' : C.surfaceHover,
                 border: `1px solid ${filterStatus ? C.primary : C.borderHover}`,
                 borderRadius: 8, color: filterStatus ? C.primary : C.secondary,
                 fontSize: 12, fontWeight: 500, padding: '8px 32px 8px 12px',
                 cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                 transition: 'border-color 0.15s, background-color 0.15s',
               }}
             >
@@ -578,12 +577,11 @@ export default function DashboardPage() {
               value={filterPriority}
               onChange={e => setFilterPriority(e.target.value as TaskPriority | '')}
               style={{
-                backgroundColor: filterPriority ? 'rgba(123,104,238,0.14)' : C.elevated,
+                backgroundColor: filterPriority ? 'rgba(111,91,255,0.14)' : C.surfaceHover,
                 border: `1px solid ${filterPriority ? C.primary : C.borderHover}`,
                 borderRadius: 8, color: filterPriority ? C.primary : C.secondary,
                 fontSize: 12, fontWeight: 500, padding: '8px 32px 8px 12px',
                 cursor: 'pointer', outline: 'none', fontFamily: 'inherit', appearance: 'none',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                 transition: 'border-color 0.15s, background-color 0.15s',
               }}
             >
@@ -621,10 +619,10 @@ export default function DashboardPage() {
               onClick={() => setShowColMenu(v => !v)}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
-                backgroundColor: showColMenu ? 'rgba(123,104,238,0.12)' : C.surface,
-                border: `1px solid ${showColMenu ? C.primary : C.border}`,
-                borderRadius: 7, color: showColMenu ? C.primary : C.secondary,
-                fontSize: 12, fontWeight: 500, padding: '7px 12px',
+                backgroundColor: showColMenu ? 'rgba(111,91,255,0.12)' : C.surfaceHover,
+                border: `1px solid ${showColMenu ? C.primary : C.borderHover}`,
+                borderRadius: 8, color: showColMenu ? C.primary : C.secondary,
+                fontSize: 12, fontWeight: 500, padding: '8px 12px',
                 cursor: 'pointer', fontFamily: 'inherit',
               }}
             >
@@ -786,7 +784,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Table ── */}
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', backgroundColor: C.surface }}>
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', backgroundColor: C.surface, boxShadow: '0 1px 4px rgba(0,0,0,0.18)' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', minWidth: 1380, borderCollapse: 'collapse' }}>
 
@@ -796,7 +794,7 @@ export default function DashboardPage() {
 
               {/* Sticky header */}
               <thead style={{ position: 'sticky', top: 0, zIndex: 20 }}>
-                <tr style={{ backgroundColor: C.sidebar }}>
+                <tr style={{ backgroundColor: C.surface }}>
                   {COLUMNS.filter(c => visibleCols.has(c.key)).map(col => {
                     const isSorted = sortKey === col.key
                     const canSort  = col.key !== '_delete'
@@ -812,12 +810,12 @@ export default function DashboardPage() {
                           }
                         } : undefined}
                         style={{
-                          padding: '0 14px', height: 36, textAlign: 'left',
+                          padding: '0 14px', height: 40, textAlign: 'left',
                           fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
                           letterSpacing: '0.06em',
                           color: isSorted ? C.primary : col.editable ? C.secondary : C.muted,
                           whiteSpace: 'nowrap', borderBottom: `1px solid ${C.border}`,
-                          backgroundColor: C.sidebar,
+                          backgroundColor: C.surface,
                           cursor: canSort ? 'pointer' : 'default',
                           userSelect: 'none',
                         }}

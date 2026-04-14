@@ -350,7 +350,7 @@ export default function SprintsPage() {
 
       {/* ── Sticky page header ── */}
       <div className="sticky top-0 z-30 bg-[#18232d] border-b border-[#2a3f52]">
-        <div className="flex items-center gap-3 px-7 h-14">
+        <div className="flex items-center gap-3 pl-14 pr-4 md:px-7 h-14">
           <Zap size={16} className="text-[#3f9cfb] flex-shrink-0" />
 
           {loading ? (

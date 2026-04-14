@@ -586,7 +586,7 @@ export default function WorkloadPage() {
 
       {/* ── Sticky header ── */}
       <div
-        className="sticky top-0 z-30 flex h-14 items-center justify-between border-b px-7"
+        className="sticky top-0 z-30 flex h-14 items-center justify-between border-b pl-14 pr-4 md:px-7"
         style={{ backgroundColor: '#18232d', borderColor: '#2a3f52' }}
       >
         <div className="flex items-center gap-2.5">

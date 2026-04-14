@@ -38,19 +38,20 @@ export default function AIAgent() {
   const [messages,     setMessages]     = useState<Message[]>([])
   const [input,        setInput]        = useState('')
   const [interimText,  setInterimText]  = useState('')
-  const [vol,          setVol]          = useState(0)       // 0–100 audio volume
   const [timer,        setTimer]        = useState(0)       // seconds
   const [context,      setContext]      = useState<AgentContext | null>(null)
   const [btnVisible,   setBtnVisible]   = useState(true)    // floating button visibility
 
-  const canvasRef      = useRef<HTMLCanvasElement>(null)
-  const audioCtxRef    = useRef<AudioContext | null>(null)
-  const analyserRef    = useRef<AnalyserNode | null>(null)
-  const animFrameRef   = useRef<number>(0)
-  const tRef           = useRef<number>(0)
-  const recognitionRef = useRef<{ stop: () => void } | null>(null)
-  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const canvasRef       = useRef<HTMLCanvasElement>(null)
+  const audioCtxRef     = useRef<AudioContext | null>(null)
+  const analyserRef     = useRef<AnalyserNode | null>(null)
+  const animFrameRef    = useRef<number>(0)
+  const tRef            = useRef<number>(0)
+  const volRef          = useRef<number>(0)   // live audio volume — ref avoids callback churn
+  const isRecordingRef  = useRef<boolean>(false)
+  const recognitionRef  = useRef<{ stop: () => void } | null>(null)
+  const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null)
+  const messagesEndRef  = useRef<HTMLDivElement>(null)
 
   // ─── Canvas ribbon animation ─────────────────────────────────────────────
 
@@ -68,9 +69,10 @@ export default function AIAgent() {
     const lines    = 45
     const centerY  = canvas.height - 80
     const t        = tRef.current
-    const isActive = isRecording || isGenerating
+    // Read live volume from ref (no state churn, smooth animation)
+    const vol      = volRef.current
+    const isActive = isRecordingRef.current || isGenerating
 
-    // Opacity: always visible, brighter when active
     canvas.style.opacity = isActive ? '1' : '0.85'
 
     // Purple-indigo gradient matching app primary #6F5BFF
@@ -95,11 +97,11 @@ export default function AIAgent() {
         const arch       = Math.exp(-Math.pow((nx - 0.5) * 6.5, 2)) * 110
         const wave1      = Math.sin(nx * 10 + t + phase) * 35
         const wave2      = Math.cos(nx * 16 - t * 0.8 + phase * 1.3) * 20
-        // idle: 0.65 so waves are clearly visible; recording: loud, generating: medium
-        const audioScale = isRecording
-          ? (1 + vol * 0.015)
+        // audioScale: idle=0.65 (visible), generating=1.1, recording=reacts to mic
+        const audioScale = isRecordingRef.current
+          ? (1 + vol * 0.018)   // loud wave proportional to voice volume
           : isGenerating ? 1.1 : 0.65
-        const audioBump  = Math.sin(nx * 15 - t * 2.5) * (vol * 0.8)
+        const audioBump  = Math.sin(nx * 15 - t * 2.5) * (vol * 0.9)
         const y = centerY - arch + (wave1 + wave2 + audioBump) * envelope * audioScale
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
       }
@@ -108,7 +110,7 @@ export default function AIAgent() {
 
     tRef.current += 0.018
     animFrameRef.current = requestAnimationFrame(drawRibbons)
-  }, [isRecording, isGenerating, vol])
+  }, [isGenerating])   // only re-create when generating state changes
 
   // ─── Effects ──────────────────────────────────────────────────────────────
 
@@ -266,12 +268,13 @@ export default function AIAgent() {
   // ─── Voice ────────────────────────────────────────────────────────────────
 
   function stopVoice() {
+    isRecordingRef.current = false
     recognitionRef.current?.stop()
     audioCtxRef.current?.close()
     audioCtxRef.current = null
     analyserRef.current = null
+    volRef.current = 0
     setIsRecording(false)
-    setVol(0)
     if (interimText.trim()) {
       sendMessage(interimText.trim())
       setInterimText('')
@@ -305,26 +308,29 @@ export default function AIAgent() {
     rec.onerror = () => stopVoice()
     rec.start()
     recognitionRef.current = rec
+    isRecordingRef.current = true
     setIsRecording(true)
     setInterimText('')
 
-    // Audio context for volume
+    // Audio context — writes to volRef directly, no setState so no re-renders
     navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-      const ctx     = new AudioContext()
-      const source  = ctx.createMediaStreamSource(stream)
+      const ctx      = new AudioContext()
+      const source   = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
       source.connect(analyser)
-      audioCtxRef.current  = ctx
-      analyserRef.current  = analyser
+      audioCtxRef.current = ctx
+      analyserRef.current = analyser
 
       function tick() {
-        if (!analyserRef.current) return
+        if (!analyserRef.current || !isRecordingRef.current) {
+          volRef.current = 0
+          return
+        }
         const data = new Uint8Array(analyserRef.current.frequencyBinCount)
         analyserRef.current.getByteFrequencyData(data)
-        const avg = data.reduce((a, b) => a + b, 0) / data.length
-        setVol(avg)
-        if (isRecording) requestAnimationFrame(tick)
+        volRef.current = data.reduce((a, b) => a + b, 0) / data.length
+        requestAnimationFrame(tick)
       }
       tick()
     }).catch(() => {})
@@ -343,14 +349,16 @@ export default function AIAgent() {
 
   return (
     <>
-      {/* ── Floating sparkle button ──────────────────────────────────── */}
+      {/* ── Floating sparkle button ─────────────────────────────────────
+           Centered in the CONTENT area (viewport minus 240px sidebar)
+           so it stays at the exact same position as the in-overlay button  */}
       {btnVisible && (
         <button
           onClick={openOverlay}
           style={{
             position:        'fixed',
-            bottom:          28,
-            left:            '50%',
+            bottom:          32,
+            left:            'calc(240px + (100vw - 240px) / 2)',
             transform:       'translateX(-50%)',
             width:           56,
             height:          56,
@@ -453,13 +461,13 @@ export default function AIAgent() {
           <div style={{
             flex:          1,
             width:         '100%',
-            maxWidth:      620,
+            maxWidth:      '90%',
             overflowY:     'auto',
             display:       'flex',
             flexDirection: 'column',
             justifyContent:'flex-end',
-            gap:            12,
-            padding:       '72px 24px 24px',
+            gap:            16,
+            padding:       'clamp(56px, 8vh, 80px) clamp(16px, 4vw, 40px) 20px',
             boxSizing:     'border-box',
             position:      'relative',
             zIndex:         5,
@@ -473,26 +481,26 @@ export default function AIAgent() {
                   animation:      'aiMsgIn 0.25s ease-out',
                 }}
               >
+                {/* No background box — just text with subtle contrast */}
                 <div style={{
-                  maxWidth:        '80%',
-                  backgroundColor: msg.role === 'user'
-                    ? 'rgba(37,39,51,0.92)'
-                    : 'rgba(26,28,38,0.92)',
-                  backdropFilter:  'blur(10px)',
-                  border:          msg.role === 'user'
-                    ? `1px solid ${PRIMARY_LO}`
-                    : '1px solid rgba(255,255,255,0.08)',
-                  borderRadius:    msg.role === 'user'
-                    ? '18px 18px 4px 18px'
-                    : '18px 18px 18px 4px',
-                  padding:    '12px 16px',
-                  fontSize:   14,
-                  color:      msg.isLoading ? 'rgba(255,255,255,0.45)' : '#e2e4e9',
-                  lineHeight: 1.6,
-                  boxShadow:  '0 2px 12px rgba(0,0,0,0.25)',
+                  maxWidth:   '78%',
+                  padding:    msg.role === 'user' ? '2px 0' : '2px 0',
+                  fontSize:   'clamp(13px, 1.5vw, 15px)',
+                  color:      msg.isLoading
+                    ? 'rgba(255,255,255,0.45)'
+                    : msg.role === 'user'
+                      ? 'rgba(230,230,255,0.9)'
+                      : 'rgba(226,228,233,0.95)',
+                  lineHeight: 1.65,
+                  textShadow: '0 1px 6px rgba(0,0,0,0.6)',
+                  fontWeight: msg.role === 'user' ? 400 : 400,
+                  borderLeft: msg.role === 'assistant' && !msg.isLoading
+                    ? '2px solid rgba(111,91,255,0.5)'
+                    : 'none',
+                  paddingLeft: msg.role === 'assistant' && !msg.isLoading ? 12 : 0,
                 }}>
                   {msg.isLoading ? (
-                    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       {[0,1,2].map(d => (
                         <span key={d} style={{
                           width: 7, height: 7, borderRadius: '50%',
@@ -501,7 +509,7 @@ export default function AIAgent() {
                           display: 'inline-block',
                         }} />
                       ))}
-                      <span style={{ marginLeft: 6, fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                      <span style={{ marginLeft: 4, fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>
                         {fmtTimer(timer)}s
                       </span>
                     </div>
@@ -510,9 +518,9 @@ export default function AIAgent() {
                       {msg.content}
                       {msg.action_result?.display_id && (
                         <div style={{
-                          marginTop: 8, padding: '5px 10px',
-                          backgroundColor: 'rgba(74,222,128,0.1)',
-                          border: '1px solid rgba(74,222,128,0.28)',
+                          marginTop: 8, padding: '4px 10px',
+                          backgroundColor: 'rgba(74,222,128,0.08)',
+                          border: '1px solid rgba(74,222,128,0.25)',
                           borderRadius: 6, fontSize: 12, color: '#4ade80',
                           display: 'inline-flex', alignItems: 'center', gap: 5,
                         }}>
@@ -525,25 +533,22 @@ export default function AIAgent() {
               </div>
             ))}
 
-            {/* Live recording bubble */}
+            {/* Live recording — no bubble, just italic text */}
             {isRecording && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', animation: 'aiMsgIn 0.2s ease-out' }}>
                 <div style={{
-                  maxWidth:        '80%',
-                  backgroundColor: 'rgba(37,39,51,0.92)',
-                  backdropFilter:  'blur(10px)',
-                  border:          `1px solid ${PRIMARY_LO}`,
-                  borderRadius:    '18px 18px 4px 18px',
-                  padding:         '12px 16px',
-                  fontSize:        14, color: '#e2e4e9', lineHeight: 1.6,
-                  boxShadow:       '0 2px 12px rgba(0,0,0,0.25)',
-                  minWidth:        120,
+                  maxWidth:   '78%',
+                  fontSize:   'clamp(13px, 1.5vw, 15px)',
+                  color:      'rgba(200,195,255,0.85)',
+                  lineHeight: 1.65,
+                  textShadow: '0 1px 6px rgba(0,0,0,0.6)',
+                  fontStyle:  'italic',
                 }}>
                   {input || interimText
                     ? <>{input}{interimText}</>
-                    : <span style={{ color: 'rgba(255,255,255,0.4)' }}>Listening...</span>
+                    : <span style={{ color: 'rgba(180,175,240,0.55)' }}>Listening...</span>
                   }
-                  <span style={{ animation: 'aiCursor 0.9s step-end infinite' }}>|</span>
+                  <span style={{ animation: 'aiCursor 0.9s step-end infinite', fontStyle: 'normal' }}>|</span>
                 </div>
               </div>
             )}
@@ -572,21 +577,27 @@ export default function AIAgent() {
                 style={{
                   width:           '100%',
                   boxSizing:       'border-box',
-                  backgroundColor: 'rgba(26,28,38,0.88)',
-                  backdropFilter:  'blur(10px)',
-                  border:          '1px solid rgba(255,255,255,0.1)',
-                  borderRadius:    12,
-                  color:           '#e2e4e9',
-                  fontSize:        14,
+                  backgroundColor: 'rgba(15,16,22,0.55)',
+                  backdropFilter:  'blur(12px)',
+                  border:          '1px solid rgba(255,255,255,0.08)',
+                  borderRadius:    14,
+                  color:           'rgba(226,228,233,0.9)',
+                  fontSize:        'clamp(13px, 1.4vw, 15px)',
                   lineHeight:      1.5,
-                  padding:         '11px 16px',
+                  padding:         '12px 18px',
                   outline:         'none',
                   resize:          'none',
                   fontFamily:      'inherit',
-                  transition:      'border-color 0.15s',
+                  transition:      'border-color 0.15s, background 0.15s',
                 }}
-                onFocus={e => (e.currentTarget.style.borderColor = PRIMARY_LO)}
-                onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)')}
+                onFocus={e => {
+                  e.currentTarget.style.borderColor = 'rgba(111,91,255,0.45)'
+                  e.currentTarget.style.backgroundColor = 'rgba(15,16,22,0.7)'
+                }}
+                onBlur={e  => {
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+                  e.currentTarget.style.backgroundColor = 'rgba(15,16,22,0.55)'
+                }}
               />
             </div>
           )}

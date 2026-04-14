@@ -2,22 +2,22 @@
 
 @theme {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --color-app-bg:          #1A1D23;
-  --color-sidebar-bg:      #1E2028;
-  --color-surface:         #2A2D35;
-  --color-surface-hover:   #2E323A;
-  --color-elevated:        #31353F;
-  --color-border:          #363940;
-  --color-border-hover:    #4A4F5A;
-  --color-primary:         #7B68EE;
-  --color-primary-hover:   #6C5CE7;
+  --color-app-bg:          #15161D;
+  --color-sidebar-bg:      #1B1D25;
+  --color-surface:         #1E2029;
+  --color-surface-hover:   #252733;
+  --color-elevated:        #252535;
+  --color-border:          #262833;
+  --color-border-hover:    #313442;
+  --color-primary:         #6F5BFF;
+  --color-primary-hover:   #5f4be6;
   --color-text:            #E2E4E9;
-  --color-secondary:       #9BA0AB;
-  --color-muted:           #6B7280;
+  --color-secondary:       #94A3B8;
+  --color-muted:           #64748B;
 }
 
 html, body {
-  background-color: #1A1D23;
+  background-color: #15161D;
   color: #E2E4E9;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -27,8 +27,8 @@ html, body {
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #363940; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #4A4F5A; }
+::-webkit-scrollbar-thumb { background: #262833; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #313442; }
 
 /* datetime-local color scheme */
 input[type="datetime-local"],
@@ -48,7 +48,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
 input[type="date"]::-webkit-calendar-picker-indicator:hover {
   filter: invert(0.75) brightness(1.4);
-  background-color: rgba(123, 104, 238, 0.18);
+  background-color: rgba(111, 91, 255, 0.18);
 }
 
 /* Datetime edit fields */
@@ -75,7 +75,7 @@ input[type="datetime-local"]::-webkit-datetime-edit-year-field:focus,
 input[type="datetime-local"]::-webkit-datetime-edit-hour-field:focus,
 input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus,
 input[type="datetime-local"]::-webkit-datetime-edit-ampm-field:focus {
-  background-color: #7B68EE;
+  background-color: #6F5BFF;
   color: #fff;
   outline: none;
 }
@@ -99,7 +99,7 @@ select {
 }
 
 @keyframes rowFlash {
-  0%   { background-color: rgba(123, 104, 238, 0.22); }
+  0%   { background-color: rgba(111, 91, 255, 0.22); }
   100% { background-color: transparent; }
 }
 
@@ -109,7 +109,7 @@ select {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #2A2D35 25%, #31353F 50%, #2A2D35 75%);
+  background: linear-gradient(90deg, #1E2029 25%, #252535 50%, #1E2029 75%);
   background-size: 800px 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -136,7 +136,7 @@ select {
   cursor: text;
 }
 .editable-cell:hover {
-  background-color: rgba(123, 104, 238, 0.06);
+  background-color: rgba(111, 91, 255, 0.06);
   border-radius: 4px;
 }
 .editable-cell .edit-hint {
@@ -150,8 +150,8 @@ select {
 /* Focus ring for inputs */
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: #7B68EE !important;
-  box-shadow: 0 0 0 3px rgba(123, 104, 238, 0.18) !important;
+  border-color: #6F5BFF !important;
+  box-shadow: 0 0 0 3px rgba(111, 91, 255, 0.18) !important;
 }
 
 @keyframes aiPulse {
@@ -180,8 +180,8 @@ input:focus, select:focus, textarea:focus {
 /* ── Floating dropdown panel ───────────────────────────────────────────────── */
 
 .dropdown-panel {
-  background-color: #31353F;
-  border: 1px solid #4A4F5A;
+  background-color: #252535;
+  border: 1px solid #313442;
   border-radius: 10px;
   padding: 6px;
   box-shadow:
@@ -203,10 +203,10 @@ input:focus, select:focus, textarea:focus {
   user-select: none;
 }
 .dropdown-item:hover {
-  background-color: rgba(123, 104, 238, 0.12);
+  background-color: rgba(111, 91, 255, 0.12);
 }
 .dropdown-item[data-active="true"] {
-  background-color: rgba(123, 104, 238, 0.18);
+  background-color: rgba(111, 91, 255, 0.18);
   color: #A89CF7;
 }
 

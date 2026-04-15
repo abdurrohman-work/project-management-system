@@ -397,8 +397,9 @@ export default function AIAgent() {
             right:           0,
             bottom:          0,
             zIndex:          900,
-            background:      'radial-gradient(circle at 50% 60%, rgba(21,22,29,0.88), rgba(15,16,22,0.80))',
-            backdropFilter:  'blur(10px)',
+            // Transparent at top, only a gentle dark fade near the bottom wave area
+            background:      'linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 40%, rgba(15,16,22,0.55) 70%, rgba(15,16,22,0.82) 100%)',
+            backdropFilter:  'none',
             display:         'flex',
             flexDirection:   'column',
             alignItems:      'center',
@@ -425,21 +426,21 @@ export default function AIAgent() {
             <X size={15} />
           </button>
 
-          {/* Ambient glow behind button */}
+          {/* Ambient glow — only near the button at bottom, not full-height */}
           <div style={{
             position:        'absolute',
-            bottom:          '-10%',
+            bottom:          '-15%',
             left:            '50%',
-            transform:       `translateX(-50%) scale(${isRecording || isGenerating ? 1.15 : 1})`,
-            width:           '55vw',
-            height:          '55vw',
-            maxWidth:        700,
-            maxHeight:       700,
+            transform:       `translateX(-50%) scale(${isRecording || isGenerating ? 1.1 : 1})`,
+            width:           '40vw',
+            height:          '40vw',
+            maxWidth:        500,
+            maxHeight:       500,
             borderRadius:    '50%',
             backgroundColor: isRecording || isGenerating
-              ? 'rgba(111,91,255,0.18)'
-              : 'rgba(111,91,255,0.09)',
-            filter:          'blur(100px)',
+              ? 'rgba(111,91,255,0.15)'
+              : 'rgba(111,91,255,0.07)',
+            filter:          'blur(80px)',
             transition:      'all 0.7s ease',
             pointerEvents:   'none',
           }} />
@@ -491,7 +492,7 @@ export default function AIAgent() {
                       ? 'rgba(220,215,255,0.92)'   // soft lavender for user
                       : 'rgba(226,228,233,0.95)',   // near-white for assistant
                   lineHeight:  1.7,
-                  textShadow:  '0 1px 8px rgba(0,0,0,0.7)',
+                  textShadow:  '0 1px 10px rgba(0,0,0,0.95), 0 0 24px rgba(0,0,0,0.8)',
                   textAlign:   msg.role === 'user' ? 'right' : 'left',
                   // assistant: left purple accent; user: right accent
                   borderLeft:  msg.role === 'assistant' && !msg.isLoading
@@ -545,7 +546,7 @@ export default function AIAgent() {
                   fontSize:    'clamp(13px, 1.4vw, 15px)',
                   color:       'rgba(200,195,255,0.75)',
                   lineHeight:  1.7,
-                  textShadow:  '0 1px 8px rgba(0,0,0,0.7)',
+                  textShadow:  '0 1px 10px rgba(0,0,0,0.95), 0 0 24px rgba(0,0,0,0.8)',
                   textAlign:   'right',
                   borderRight: '2px solid rgba(111,91,255,0.3)',
                   paddingRight: 12,

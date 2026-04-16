@@ -116,7 +116,17 @@ export default function SprintsPage() {
     fetch('/api/sprints/active')
       .then(r => r.json())
       .then(j => {
-        if (j.success) { setSprint(j.data.sprint); setGroups(j.data.groups) }
+        if (j.success) {
+          setSprint(j.data.sprint)
+          setGroups(j.data.groups)
+          // Collapse groups whose parent task is 100% complete by default
+          const autoCollapsed = new Set<string>(
+            (j.data.groups as MainTaskGroup[])
+              .filter(g => g.mainTask.progress >= 100)
+              .map(g => g.mainTask.id)
+          )
+          setCollapsed(autoCollapsed)
+        }
       })
       .finally(() => setLoading(false))
   }, [])
@@ -458,16 +468,17 @@ export default function SprintsPage() {
                                       onChange={e => handleStatusChange(task.id, e.target.value as SprintTaskStatus)}
                                       style={{
                                         backgroundColor: st.bg, color: st.text,
-                                        border: 'none', borderRadius: 9999,
+                                        border: `1px solid ${st.dot}33`, borderRadius: 9999,
                                         fontSize: 11, fontWeight: 500,
-                                        padding: '3px 26px 3px 10px',
+                                        padding: '4px 28px 4px 10px',
                                         cursor: 'pointer', outline: 'none',
                                         appearance: 'none', fontFamily: 'inherit',
-                                        transition: 'background-color 0.15s',
+                                        transition: 'background-color 0.15s, border-color 0.15s',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                                       }}
                                     >
                                       {ALL_ST_STATUSES.map(s => (
-                                        <option key={s} value={s} style={{ backgroundColor: C.surface, color: C.text }}>
+                                        <option key={s} value={s} style={{ backgroundColor: C.elevated, color: C.text }}>
                                           {ST_STATUS[s].label}
                                         </option>
                                       ))}
@@ -609,14 +620,15 @@ export default function SprintsPage() {
                                     value={addPriority}
                                     onChange={e => setAddPriority(e.target.value as TaskPriority)}
                                     style={{
-                                      backgroundColor: C.surface, border: `1px solid ${C.border}`,
-                                      borderRadius: 6, color: PRIORITY_CONFIG[addPriority].color,
+                                      backgroundColor: C.elevated, border: `1px solid ${C.borderHover}`,
+                                      borderRadius: 8, color: PRIORITY_CONFIG[addPriority].color,
                                       fontSize: 12, fontWeight: 500, padding: '6px 28px 6px 10px',
                                       outline: 'none', cursor: 'pointer', fontFamily: 'inherit', appearance: 'none',
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                                     }}
                                   >
                                     {(['low', 'medium', 'high', 'critical'] as TaskPriority[]).map(p => (
-                                      <option key={p} value={p} style={{ backgroundColor: C.surface, color: C.text }}>
+                                      <option key={p} value={p} style={{ backgroundColor: C.elevated, color: C.text }}>
                                         {PRIORITY_CONFIG[p].label}
                                       </option>
                                     ))}

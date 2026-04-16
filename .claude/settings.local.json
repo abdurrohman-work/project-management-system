@@ -14,7 +14,16 @@
       "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next -type f -name CHANGELOG* -o -name README*)",
       "Bash(grep -r \"AppRouteHandlerFn\\\\|export.*function\" /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist/server/route-modules/app-route/ --include=*.d.ts)",
       "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next -type f \\\\\\(-name *.md -o -name *.txt \\\\\\))",
-      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist/docs -type f -name *.md)"
+      "Bash(find /c/Users/abduk/Desktop/project-management-system/node_modules/next/dist/docs -type f -name *.md)",
+      "Bash(xargs wc:*)",
+      "Bash(npx vercel:*)",
+      "Read(//c/Users/abduk/AppData/Local/com.vercel.cli//**)",
+      "Read(//c/Users/abduk/AppData/Local/com.vercel.cli/**)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(powershell -Command \"irm https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.ps1 | iex\")",
+      "Bash(node \"C:/Users/abduk/.claude/hooks/caveman-activate.js\")"
     ]
   }
 }

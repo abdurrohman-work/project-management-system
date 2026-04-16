@@ -40,7 +40,6 @@ export default function AIAgent() {
   const [interimText,  setInterimText]  = useState('')
   const [timer,        setTimer]        = useState(0)       // seconds
   const [context,      setContext]      = useState<AgentContext | null>(null)
-  const [btnVisible,   setBtnVisible]   = useState(true)    // floating button visibility
 
   const canvasRef       = useRef<HTMLCanvasElement>(null)
   const audioCtxRef     = useRef<AudioContext | null>(null)
@@ -700,134 +699,8 @@ export default function AIAgent() {
             </div>
           )}
 
-          {/* ── Morphing center button + orbital rings ───────────────── */}
-          <div style={{
-            position:       'relative',
-            marginBottom:   32,
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'center',
-            width:           148,
-            height:          148,
-            flexShrink:      0,
-            zIndex:          10,
-          }}>
-            {/* Orbital rings — visible when recording or has text */}
-            {(isRecording || input.trim()) && (
-              <>
-                <div className="animate-spin" style={{
-                  position: 'absolute', width: 96, height: 96, borderRadius: '50%',
-                  border: '1px solid rgba(111,91,255,0.15)',
-                  borderTop: `1px solid rgba(111,91,255,0.85)`,
-                  animationDuration: '4s',
-                }} />
-                <div className="animate-spin" style={{
-                  position: 'absolute', width: 114, height: 114, borderRadius: '50%',
-                  border: '1px solid rgba(96,165,250,0.1)',
-                  borderBottom: '1px solid rgba(96,165,250,0.6)',
-                  animationDuration: '5s',
-                  animationDirection: 'reverse',
-                }} />
-                <div style={{
-                  position: 'absolute', width: 130, height: 130, borderRadius: '50%',
-                  border: `1px solid rgba(111,91,255,0.08)`,
-                }} />
-              </>
-            )}
-
-            {/* Center button — 76px */}
-            <button
-              onClick={isRecording ? stopVoice : (input.trim() ? () => sendMessage() : toggleVoice)}
-              style={{
-                position:        'relative',
-                width:           76,
-                height:          76,
-                borderRadius:    '50%',
-                backgroundColor: isRecording
-                  ? PRIMARY
-                  : input.trim() ? PRIMARY : 'rgba(111,91,255,0.22)',
-                border:          `2px solid ${isRecording ? PRIMARY : input.trim() ? PRIMARY : 'rgba(111,91,255,0.4)'}`,
-                cursor:          'pointer',
-                display:         'flex',
-                flexDirection:   'column',
-                alignItems:      'center',
-                justifyContent:  'center',
-                gap:             3,
-                transition:      'all 0.3s ease',
-                overflow:        'hidden',
-                zIndex:          2,
-                boxShadow:       isRecording
-                  ? `0 0 28px rgba(111,91,255,0.6)`
-                  : input.trim() ? `0 0 20px rgba(111,91,255,0.4)` : 'none',
-              }}
-            >
-              {/* PAUSE state (recording) */}
-              <div style={{
-                position:   'absolute',
-                transform:  isRecording ? 'translateY(0)' : 'translateY(-40px)',
-                opacity:    isRecording ? 1 : 0,
-                transition: 'all 0.25s ease',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-              }}>
-                <Pause size={22} color="#fff" fill="#fff" />
-                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.85)', fontWeight: 700, letterSpacing: 1 }}>
-                  {fmtTimer(timer)}
-                </span>
-              </div>
-
-              {/* SEND state (has text, not recording) */}
-              <div style={{
-                position:   'absolute',
-                transform:  (!isRecording && input.trim()) ? 'translateY(0)' : 'translateY(40px)',
-                opacity:    (!isRecording && input.trim()) ? 1 : 0,
-                transition: 'all 0.25s ease',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-              }}>
-                <Send size={20} color="#fff" />
-                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.85)', fontWeight: 700, letterSpacing: 1 }}>SEND</span>
-              </div>
-
-              {/* SPARKLES state (idle) */}
-              <div style={{
-                position:   'absolute',
-                transform:  (!isRecording && !input.trim()) ? 'translateY(0)' : 'translateY(40px)',
-                opacity:    (!isRecording && !input.trim()) ? 1 : 0,
-                transition: 'all 0.25s ease',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Sparkles size={22} color="rgba(255,255,255,0.6)" />
-              </div>
-            </button>
-
-            {/* Mic toggle — small pill below center button when idle */}
-            {!isRecording && (
-              <button
-                onClick={toggleVoice}
-                title="Ovozli kiritish"
-                style={{
-                  position:        'absolute',
-                  bottom:          -4,
-                  right:           -4,
-                  width:           30,
-                  height:          30,
-                  borderRadius:    '50%',
-                  backgroundColor: 'rgba(21,22,29,0.95)',
-                  border:          '1px solid rgba(255,255,255,0.1)',
-                  cursor:          'pointer',
-                  display:         'flex',
-                  alignItems:      'center',
-                  justifyContent:  'center',
-                  fontSize:        13,
-                  zIndex:           3,
-                  transition:      'background 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = `rgba(111,91,255,0.2)`)}
-                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(21,22,29,0.95)')}
-              >
-                🎤
-              </button>
-            )}
-          </div>
+          {/* spacer so content doesn't hide under the fixed button */}
+          <div style={{ height: 96, flexShrink: 0 }} />
         </div>
       )}
     </>

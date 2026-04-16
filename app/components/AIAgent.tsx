@@ -197,7 +197,6 @@ export default function AIAgent() {
   // ─── Open/close overlay ───────────────────────────────────────────────────
 
   function openOverlay() {
-    setBtnVisible(false)
     setIsOpen(true)
     loadContext()
     if (messages.length === 0) {
@@ -213,7 +212,6 @@ export default function AIAgent() {
   function closeOverlay() {
     setIsOpen(false)
     if (isRecording) stopVoice()
-    setTimeout(() => setBtnVisible(true), 300)
   }
 
   // ─── Send message ─────────────────────────────────────────────────────────
@@ -355,43 +353,127 @@ export default function AIAgent() {
   const PRIMARY_LO = 'rgba(111,91,255,0.35)'
   const PRIMARY_MD = 'rgba(111,91,255,0.55)'
 
+  // Fixed center: same for both open and closed button
+  const BTN_LEFT = 'calc(240px + (100vw - 240px) / 2)'
+  const BTN_BOTTOM = 32
+
   return (
     <>
-      {/* ── Floating sparkle button ─────────────────────────────────────
-           Centered in the CONTENT area (viewport minus 240px sidebar)
-           so it stays at the exact same position as the in-overlay button  */}
-      {btnVisible && (
+      {/* ── Orbital rings (fixed, same center as button, above overlay) ── */}
+      {isOpen && (isRecording || !!input.trim()) && (
+        <>
+          <div className="animate-spin" style={{
+            position: 'fixed', bottom: BTN_BOTTOM - 21, left: BTN_LEFT,
+            transform: 'translateX(-50%)',
+            width: 96, height: 96, borderRadius: '50%',
+            border: '1px solid rgba(111,91,255,0.15)',
+            borderTop: '1px solid rgba(111,91,255,0.85)',
+            animationDuration: '4s', zIndex: 1001, pointerEvents: 'none',
+          }} />
+          <div className="animate-spin" style={{
+            position: 'fixed', bottom: BTN_BOTTOM - 28, left: BTN_LEFT,
+            transform: 'translateX(-50%)',
+            width: 114, height: 114, borderRadius: '50%',
+            border: '1px solid rgba(96,165,250,0.1)',
+            borderBottom: '1px solid rgba(96,165,250,0.6)',
+            animationDuration: '5s', animationDirection: 'reverse',
+            zIndex: 1001, pointerEvents: 'none',
+          }} />
+        </>
+      )}
+
+      {/* ── Single persistent button — NEVER moves ───────────────────── */}
+      <button
+        onClick={isOpen
+          ? (isRecording ? stopVoice : (input.trim() ? () => sendMessage() : toggleVoice))
+          : openOverlay}
+        style={{
+          position:        'fixed',
+          bottom:          BTN_BOTTOM,
+          left:            BTN_LEFT,
+          transform:       'translateX(-50%)',
+          width:           64,
+          height:          64,
+          borderRadius:    '50%',
+          backgroundColor: (isOpen && (isRecording || input.trim())) ? PRIMARY : isOpen ? 'rgba(111,91,255,0.30)' : PRIMARY,
+          border:          `2px solid ${isOpen && !isRecording && !input.trim() ? 'rgba(111,91,255,0.5)' : PRIMARY}`,
+          cursor:          'pointer',
+          display:         'flex',
+          flexDirection:   'column',
+          alignItems:      'center',
+          justifyContent:  'center',
+          gap:             2,
+          zIndex:          1001,
+          overflow:        'hidden',
+          boxShadow:       isRecording
+            ? '0 0 28px rgba(111,91,255,0.7)'
+            : `0 0 20px ${PRIMARY_MD}`,
+          transition:      'background-color 0.25s, box-shadow 0.25s, border-color 0.25s',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = 'translateX(-50%) scale(1.07)'
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'translateX(-50%) scale(1)'
+        }}
+      >
+        {/* PAUSE — recording */}
+        <div style={{
+          position: 'absolute',
+          transform: isOpen && isRecording ? 'translateY(0)' : 'translateY(-44px)',
+          opacity:   isOpen && isRecording ? 1 : 0,
+          transition: 'all 0.22s ease',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+        }}>
+          <Pause size={20} color="#fff" fill="#fff" />
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.85)', fontWeight: 700, letterSpacing: 1 }}>
+            {fmtTimer(timer)}
+          </span>
+        </div>
+
+        {/* SEND — has typed text */}
+        <div style={{
+          position: 'absolute',
+          transform: isOpen && !isRecording && input.trim() ? 'translateY(0)' : 'translateY(44px)',
+          opacity:   isOpen && !isRecording && input.trim() ? 1 : 0,
+          transition: 'all 0.22s ease',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+        }}>
+          <Send size={19} color="#fff" />
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.85)', fontWeight: 700, letterSpacing: 1 }}>SEND</span>
+        </div>
+
+        {/* SPARKLES — idle (open or closed) */}
+        <div style={{
+          position: 'absolute',
+          transform: (!isOpen || (!isRecording && !input.trim())) ? 'translateY(0)' : 'translateY(44px)',
+          opacity:   (!isOpen || (!isRecording && !input.trim())) ? 1 : 0,
+          transition: 'all 0.22s ease',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Sparkles size={22} color="#fff" />
+        </div>
+      </button>
+
+      {/* Mic toggle — fixed, just below+right of main button */}
+      {isOpen && !isRecording && (
         <button
-          onClick={openOverlay}
+          onClick={toggleVoice}
+          title="Ovozli kiritish"
           style={{
             position:        'fixed',
-            bottom:          32,
-            left:            'calc(240px + (100vw - 240px) / 2)',
-            transform:       'translateX(-50%)',
-            width:           56,
-            height:          56,
-            borderRadius:    '50%',
-            backgroundColor: PRIMARY,
-            border:          'none',
-            cursor:          'pointer',
-            display:         'flex',
-            alignItems:      'center',
-            justifyContent:  'center',
-            zIndex:          1000,
-            boxShadow:       `0 0 24px ${PRIMARY_MD}`,
-            transition:      'transform 0.2s, box-shadow 0.2s',
+            bottom:          BTN_BOTTOM - 8,
+            left:            `calc(${BTN_LEFT} + 24px)`,
+            width:           28, height: 28, borderRadius: '50%',
+            backgroundColor: 'rgba(21,22,29,0.95)',
+            border:          '1px solid rgba(255,255,255,0.1)',
+            cursor:          'pointer', display: 'flex', alignItems: 'center',
+            justifyContent:  'center', fontSize: 12,
+            zIndex:          1002, transition: 'background 0.15s',
           }}
-          onMouseEnter={e => {
-            e.currentTarget.style.transform = 'translateX(-50%) scale(1.08)'
-            e.currentTarget.style.boxShadow = `0 0 36px rgba(111,91,255,0.75)`
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.transform = 'translateX(-50%) scale(1)'
-            e.currentTarget.style.boxShadow = `0 0 24px ${PRIMARY_MD}`
-          }}
-        >
-          <Sparkles size={22} color="#fff" />
-        </button>
+          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(111,91,255,0.25)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'rgba(21,22,29,0.95)')}
+        >🎤</button>
       )}
 
       {/* ── Overlay — starts after sidebar (240px) ───────────────────── */}

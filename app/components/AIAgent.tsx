@@ -160,6 +160,14 @@ export default function AIAgent() {
     return () => { void handler }
   }, [])
 
+  // Escape key closes overlay
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') closeOverlay() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isOpen])
+
   // ─── Timer formatter ──────────────────────────────────────────────────────
 
   function fmtTimer(s: number) {

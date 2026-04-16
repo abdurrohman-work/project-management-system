@@ -60,13 +60,12 @@ export default function AIAgent() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    canvas.width  = canvas.offsetWidth  || window.innerWidth
-    canvas.height = canvas.offsetHeight || window.innerHeight
-
+    // Clear only — never resize inside the draw loop (resize causes DOM reflow + position jump)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
     const lines    = 45
-    const centerY  = canvas.height - 80
+    // Pin wave center to button center: BTN_BOTTOM(32) + half button height(32) = 64px from bottom
+    const centerY  = canvas.height - 64
     const t        = tRef.current
     // Read live volume from ref (no state churn, smooth animation)
     const vol      = volRef.current
@@ -113,21 +112,35 @@ export default function AIAgent() {
 
   // ─── Effects ──────────────────────────────────────────────────────────────
 
-  // Start/stop canvas loop when overlay is open
+  // Size canvas once when overlay opens (after DOM settles), then start animation
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) {
+      cancelAnimationFrame(animFrameRef.current)
+      return
+    }
+    // Wait one frame so overlay is fully laid out before reading dimensions
+    const raf = requestAnimationFrame(() => {
+      const canvas = canvasRef.current
+      if (canvas) {
+        canvas.width  = canvas.offsetWidth  || (window.innerWidth - 240)
+        canvas.height = canvas.offsetHeight || window.innerHeight
+      }
       animFrameRef.current = requestAnimationFrame(drawRibbons)
-    } else {
+    })
+    return () => {
+      cancelAnimationFrame(raf)
       cancelAnimationFrame(animFrameRef.current)
     }
-    return () => cancelAnimationFrame(animFrameRef.current)
   }, [isOpen, drawRibbons])
 
   // Resize canvas on window resize
   useEffect(() => {
     const onResize = () => {
       const canvas = canvasRef.current
-      if (canvas) { canvas.width = window.innerWidth; canvas.height = window.innerHeight }
+      if (canvas && canvas.offsetWidth) {
+        canvas.width  = canvas.offsetWidth
+        canvas.height = canvas.offsetHeight
+      }
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)

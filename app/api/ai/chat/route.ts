@@ -58,55 +58,90 @@ interface ActionPayload {
 
 // ─── System Prompt Builder ────────────────────────────────────────────────────
 
-function buildSystemPrompt(context: RequestContext): string {
-  const sprintName = context.sprint?.name ?? 'none'
-  const taskCount = context.tasks?.length ?? 0
-  const currentPage = context.page ?? 'dashboard'
+function buildSystemPrompt(
+  context: RequestContext,
+  tasksJson: string,
+  taskCount: number,
+): string {
+  const sprintName   = context.sprint?.name ?? 'none'
+  const currentPage  = context.page ?? 'dashboard'
 
-  return `You are an intelligent AI agent for Mohir.dev project management system.
-You help users create, update, and query tasks through friendly conversation.
+  return `You are an intelligent AI agent for Mohir.dev's internal project management system.
+Your job: help team members manage tasks through natural conversation.
 
-LANGUAGE RULE: Detect the user's language and respond in the SAME language.
-- If Uzbek → respond in Uzbek
-- If Russian → respond in Russian
-- If English → respond in English
-Default greeting language: Uzbek
+LANGUAGE RULE:
+Detect user language. Respond in the SAME language always.
+- Uzbek detected → respond Uzbek
+- Russian detected → respond Russian
+- English detected → respond English
+Default (first message): Uzbek
 
-Current context: ${currentPage} page | ${taskCount} tasks | Sprint: ${sprintName}
+CURRENT CONTEXT:
+Page: ${currentPage} | Tasks: ${taskCount} | Active sprint: ${sprintName}
+All tasks: ${tasksJson}
 
-AVAILABLE ACTIONS:
-- CREATE_TASK: create a main task (epic)
-- UPDATE_TASK: update any field on a task
-- CREATE_SUBTASK: add a sprint task under a main task
-- CHANGE_STATUS: change task or sprint task status
-- ASSIGN_TASK: set task owner/assignee
-- SET_DEADLINE: set or update deadline
-- QUERY_TASKS: answer questions about existing tasks
+CAPABILITIES:
+You are NOT limited to the current page. Navigate mentally across all pages.
+If user describes a task on Dashboard, sprint tasks on Sprint, time on Workload — handle all.
 
-CONVERSATION RULES:
-1. Ask ONE question at a time if info is missing
-2. For CREATE_TASK: name is required. Ask for it if missing.
-3. Gather optional fields naturally: category, priority, owner, deadline
-4. Before ANY action: show a summary and ask confirmation in user's language
-   - Uzbek: "Tasdiqlaysizmi?"
-   - Russian: "Подтверждаете?"
-   - English: "Confirm?"
-5. Execute action ONLY after user confirms (ha/yes/да/ok/✓/confirm/tasdiqlash)
-6. Return JSON at the END of response when user confirmed. ONE block only:
-   {"action": "ACTION_NAME", "data": {...}}
-7. Never emit two JSON action blocks in one response
-8. After action: offer follow-up in same language
+Actions you can perform:
+- CREATE_TASK — create a main task (epic)
+- UPDATE_TASK — update any field on an existing task by ID or name
+- CREATE_SUBTASK — create a sprint task under a main task in the active sprint
+- UPDATE_SUBTASK — update any field on a sprint task
+- CHANGE_STATUS — change status of a main task or sprint task
+- ASSIGN_TASK — set task_owner on a main task
+- SET_DEADLINE — set or update deadline on a main task
+- DELETE_TASK — permanently delete a main task by ID or name
+- QUERY_TASKS — answer questions about existing tasks from context data
 
-TASK FIELD RULES — for CREATE_TASK data object, include ALL known fields:
-- name: required
-- category (exact): Platform Management | Course Management | IT Operations | Administrative / Office | Finance & Billing | Technical Support | Data & Analytics | Telephony/CRM | Others
-- priority: low | medium | high | critical (default: medium)
-- task_owner: email or name if mentioned
-- deadline: ISO 8601 if date mentioned
+THINKING RULES:
+1. Read what the user says carefully. Extract ALL information they give.
+2. Identify which fields are already provided vs which are missing.
+3. Fill in what you know. Ask ONLY about what is genuinely unclear.
+4. Ask ONE question at a time. Never ask multiple questions at once.
+5. If the user's intent is clear enough, proceed without asking everything.
 
-Status values:
+REQUIRED FIELDS:
+- CREATE_TASK: name is the only required field. Ask if missing.
+- CREATE_SUBTASK: name + main task reference are required.
+- UPDATE_TASK / UPDATE_SUBTASK: task ID or name + what to change.
+- DELETE_TASK: task ID or name. Always confirm before deleting.
+
+OPTIONAL FIELDS — gather naturally through conversation:
+- category, priority, task_owner, deadline, note, blocked_by
+
+CATEGORY VALUES (exact):
+Platform Management | Course Management | IT Operations | Administrative / Office | Finance & Billing | Technical Support | Data & Analytics | Telephony/CRM | Others
+
+PRIORITY VALUES: low | medium | high | critical (default: medium)
+
+STATUS VALUES:
 - main_task: backlog | in_progress | blocked | stopped | done
-- sprint_task: not_started | in_progress | done | partly_completed | blocked | stopped`
+- sprint_task: not_started | in_progress | done | partly_completed | blocked | stopped
+
+CONFIRMATION RULE:
+Before executing ANY action, show a clear summary and ask for confirmation:
+- Uzbek: "Tasdiqlaysizmi?"
+- Russian: "Подтверждаете?"
+- English: "Confirm?"
+
+For DELETE_TASK, make the warning explicit — state the task name and that this is permanent.
+
+Accepted confirmations: ha / yes / да / ok / ✓ / confirm / tasdiqlash / tasdiqlandi
+
+ACTION JSON RULE:
+After user confirms, output ONE JSON block at the END of your response. Nothing after it.
+Format: {"action": "ACTION_NAME", "data": {...}}
+Never emit two action blocks in one response.
+Never emit action JSON before confirmation.
+
+AFTER ACTION:
+Report what was done. Offer logical next step in same language.
+
+QUERY BEHAVIOR:
+For QUERY_TASKS, read from tasksJson context. Answer directly.
+If task not found in context, say so honestly. Do not invent data.`
 }
 
 // ─── Action JSON extraction ───────────────────────────────────────────────────
@@ -429,10 +464,113 @@ async function executeAction(
       return { action_result: updated }
     }
 
+    // ── UPDATE_SUBTASK ───────────────────────────────────────────────────────
+    case 'UPDATE_SUBTASK': {
+      const updates: Record<string, unknown> = {}
+
+      if (typeof data.name === 'string' && data.name.trim()) updates.name = data.name.trim()
+      if (typeof data.priority === 'string') {
+        if (VALID_PRIORITIES.includes(data.priority as TaskPriority)) updates.priority = data.priority
+      }
+      if (typeof data.status === 'string') {
+        if (VALID_SPRINT_STATUSES.includes(data.status as SprintTaskStatus)) updates.status = data.status
+      }
+      if (typeof data.note === 'string') updates.note = data.note
+      if (typeof data.task_owner === 'string') updates.task_owner = data.task_owner.trim() || null
+
+      if (Object.keys(updates).length === 0) {
+        return { action_result: null, error: 'UPDATE_SUBTASK: no valid fields to update.' }
+      }
+
+      if (typeof data.id === 'string' && data.id.trim()) {
+        const { data: updated, error } = await supabase
+          .from('sprint_tasks')
+          .update(updates)
+          .eq('id', data.id.trim())
+          .select()
+          .single()
+
+        if (error) {
+          console.error('[chat/route] UPDATE_SUBTASK (by id) error:', error)
+          return { action_result: null, error: error.message }
+        }
+        return { action_result: updated }
+      }
+
+      if (typeof data.name_query === 'string' && data.name_query.trim()) {
+        const { data: found, error: findError } = await supabase
+          .from('sprint_tasks')
+          .select('id')
+          .ilike('name', `%${data.name_query.trim()}%`)
+          .limit(1)
+          .single()
+
+        if (findError || !found) {
+          return { action_result: null, error: `No sprint task found matching "${data.name_query}".` }
+        }
+
+        const { data: updated, error: updateError } = await supabase
+          .from('sprint_tasks')
+          .update(updates)
+          .eq('id', found.id)
+          .select()
+          .single()
+
+        if (updateError) {
+          console.error('[chat/route] UPDATE_SUBTASK (by name) error:', updateError)
+          return { action_result: null, error: updateError.message }
+        }
+        return { action_result: updated }
+      }
+
+      return { action_result: null, error: 'UPDATE_SUBTASK requires either "id" or "name_query".' }
+    }
+
+    // ── DELETE_TASK ──────────────────────────────────────────────────────────
+    case 'DELETE_TASK': {
+      if (typeof data.id === 'string' && data.id.trim()) {
+        const { error } = await supabase
+          .from('main_tasks')
+          .delete()
+          .eq('id', data.id.trim())
+
+        if (error) {
+          console.error('[chat/route] DELETE_TASK (by id) error:', error)
+          return { action_result: null, error: error.message }
+        }
+        return { action_result: { deleted: true, id: data.id.trim() } }
+      }
+
+      if (typeof data.name_query === 'string' && data.name_query.trim()) {
+        const { data: found, error: findError } = await supabase
+          .from('main_tasks')
+          .select('id, name, display_id')
+          .ilike('name', `%${data.name_query.trim()}%`)
+          .limit(1)
+          .single()
+
+        if (findError || !found) {
+          return { action_result: null, error: `No task found matching "${data.name_query}".` }
+        }
+
+        const { error: deleteError } = await supabase
+          .from('main_tasks')
+          .delete()
+          .eq('id', found.id)
+
+        if (deleteError) {
+          console.error('[chat/route] DELETE_TASK (by name) error:', deleteError)
+          return { action_result: null, error: deleteError.message }
+        }
+        return { action_result: { deleted: true, id: found.id, name: found.name, display_id: found.display_id } }
+      }
+
+      return { action_result: null, error: 'DELETE_TASK requires either "id" or "name_query".' }
+    }
+
     // ── QUERY_TASKS ──────────────────────────────────────────────────────────
     case 'QUERY_TASKS': {
-      // The agent answers from the context already injected into the system prompt.
-      // No DB call needed.
+      // Agent answers from tasksJson already injected into system prompt. No DB call needed.
       return { action_result: null }
     }
 
@@ -470,17 +608,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 3. Build system prompt from context
-    const systemPrompt = buildSystemPrompt(context)
+    // 3. Fetch last 50 main_tasks for tasksJson context injection
+    let tasksJson = '[]'
+    let taskCount = 0
+    try {
+      const supabaseCtx = createServerClient()
+      const { data: allTasks } = await supabaseCtx
+        .from('main_tasks')
+        .select('id, display_id, name, status, priority, category, task_owner, deadline')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      taskCount  = allTasks?.length ?? 0
+      tasksJson  = JSON.stringify(allTasks ?? [])
+    } catch (e) {
+      console.error('[chat/route] Failed to fetch tasks for context:', e)
+    }
 
-    // 4. Call AI — try Anthropic first, fall back to Groq if key missing or error
+    // 4. Build system prompt
+    const systemPrompt = buildSystemPrompt(context, tasksJson, taskCount)
+
+    // 5. Call AI — try Anthropic first, fall back to Groq if key missing or error
     let rawReply = ''
 
     if (process.env.ANTHROPIC_API_KEY) {
       try {
         const claudeRes = await anthropic.messages.create({
           model:      'claude-haiku-4-5-20251001',
-          max_tokens: 512,
+          max_tokens: 800,
           system:     systemPrompt,
           messages:   messages.map(m => ({ role: m.role, content: m.content })),
         })
@@ -497,7 +651,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           model:       'llama-3.3-70b-versatile',
           temperature: 0.3,
-          max_tokens:  512,
+          max_tokens:  800,
           messages:    [{ role: 'system', content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))],
         }),
       })
@@ -513,13 +667,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'AI service unavailable. Check ANTHROPIC_API_KEY or GROQ_API_KEY.' }, { status: 502 })
     }
 
-    // 5. Extract action JSON from the reply (if present)
+    // 6. Extract action JSON from the reply (if present)
     const actionPayload = extractActionJSON(rawReply)
 
-    // 6. Strip the action JSON block from the display text
+    // 7. Strip the action JSON block from the display text
     const reply = actionPayload ? stripActionJSON(rawReply) : rawReply
 
-    // 7. Execute the action against Supabase (if found)
+    // 8. Execute the action against Supabase (if found)
     if (actionPayload) {
       const supabase = createServerClient()
       const { action_result, error: actionError } = await executeAction(

@@ -120,28 +120,37 @@ STATUS VALUES:
 - main_task: backlog | in_progress | blocked | stopped | done
 - sprint_task: not_started | in_progress | done | partly_completed | blocked | stopped
 
+RESPONSE STYLE:
+Be terse. No fluff. No long bullet lists. No markdown for simple answers.
+1-2 sentences max unless listing tasks. Direct. Respect user's time.
+Bad: "Of course! I'd be happy to help. Here is the detailed information..."
+Good: "MT-013 o'chirildi. Boshqa vazifa?"
+
+TASK REFERENCE IN ACTIONS:
+When user gives display_id like MT-013 → set data.display_id = "MT-013".
+When you have the UUID from tasksJson → prefer data.id = "<uuid>" (most reliable).
+When only name known → set data.name_query = "...".
+
 CONFIRMATION RULE:
-Before executing ANY action, show a clear summary and ask for confirmation:
-- Uzbek: "Tasdiqlaysizmi?"
-- Russian: "Подтверждаете?"
-- English: "Confirm?"
+One short line before any action:
+- Uzbek: "<task name> — tasdiqlaysizmi?"
+- Russian: "<task name> — подтверждаете?"
+- English: "<task name> — confirm?"
 
-For DELETE_TASK, make the warning explicit — state the task name and that this is permanent.
+DELETE_TASK only: add "⚠️ qaytarib bo'lmaydi" (or language equiv). Still one line.
 
-Accepted confirmations: ha / yes / да / ok / ✓ / confirm / tasdiqlash / tasdiqlandi
+Accepted confirmations: ha / xa / yes / да / ok / ✓ / confirm / tasdiqlash / tasdiqlandi
 
 ACTION JSON RULE:
 After user confirms, output ONE JSON block at the END of your response. Nothing after it.
 Format: {"action": "ACTION_NAME", "data": {...}}
-Never emit two action blocks in one response.
-Never emit action JSON before confirmation.
+Never emit two action blocks. Never emit JSON before confirmation.
 
 AFTER ACTION:
-Report what was done. Offer logical next step in same language.
+One sentence: what was done. One sentence: offer next step.
 
 QUERY BEHAVIOR:
-For QUERY_TASKS, read from tasksJson context. Answer directly.
-If task not found in context, say so honestly. Do not invent data.`
+Read from tasksJson. Answer directly. If not found, say so. Never invent data.`
 }
 
 // ─── Action JSON extraction ───────────────────────────────────────────────────
@@ -283,52 +292,37 @@ async function executeAction(
         return { action_result: null, error: 'UPDATE_TASK: no valid fields to update.' }
       }
 
-      // Resolve the target row
-      if (typeof data.id === 'string' && data.id.trim()) {
-        // Update by UUID
+      // Helper: update by resolved UUID
+      const doUpdate = async (uuid: string) => {
         const { data: updated, error } = await supabase
-          .from('main_tasks')
-          .update(updates)
-          .eq('id', data.id.trim())
-          .select()
-          .single()
-
+          .from('main_tasks').update(updates).eq('id', uuid).select().single()
         if (error) {
-          console.error('[chat/route] UPDATE_TASK (by id) Supabase error:', error)
+          console.error('[chat/route] UPDATE_TASK error:', error)
           return { action_result: null, error: error.message }
         }
         return { action_result: updated }
       }
 
-      if (typeof data.name_query === 'string' && data.name_query.trim()) {
-        // Find task by name fuzzy match, then update
-        const { data: found, error: findError } = await supabase
-          .from('main_tasks')
-          .select('id')
-          .ilike('name', `%${data.name_query.trim()}%`)
-          .limit(1)
-          .single()
+      // By UUID
+      if (typeof data.id === 'string' && data.id.trim()) return doUpdate(data.id.trim())
 
-        if (findError || !found) {
-          console.error('[chat/route] UPDATE_TASK (by name) find error:', findError)
-          return { action_result: null, error: `No task found matching "${data.name_query}".` }
-        }
-
-        const { data: updated, error: updateError } = await supabase
-          .from('main_tasks')
-          .update(updates)
-          .eq('id', found.id)
-          .select()
-          .single()
-
-        if (updateError) {
-          console.error('[chat/route] UPDATE_TASK (by name) update error:', updateError)
-          return { action_result: null, error: updateError.message }
-        }
-        return { action_result: updated }
+      // By display_id (e.g. MT-013)
+      if (typeof data.display_id === 'string' && data.display_id.trim()) {
+        const { data: found, error } = await supabase
+          .from('main_tasks').select('id').ilike('display_id', data.display_id.trim()).limit(1).single()
+        if (error || !found) return { action_result: null, error: `No task found with display_id "${data.display_id}".` }
+        return doUpdate(found.id)
       }
 
-      return { action_result: null, error: 'UPDATE_TASK requires either "id" or "name_query".' }
+      // By name fuzzy
+      if (typeof data.name_query === 'string' && data.name_query.trim()) {
+        const { data: found, error } = await supabase
+          .from('main_tasks').select('id').ilike('name', `%${data.name_query.trim()}%`).limit(1).single()
+        if (error || !found) return { action_result: null, error: `No task found matching "${data.name_query}".` }
+        return doUpdate(found.id)
+      }
+
+      return { action_result: null, error: 'UPDATE_TASK requires "id", "display_id", or "name_query".' }
     }
 
     // ── CREATE_SUBTASK ───────────────────────────────────────────────────────
@@ -528,44 +522,46 @@ async function executeAction(
 
     // ── DELETE_TASK ──────────────────────────────────────────────────────────
     case 'DELETE_TASK': {
-      if (typeof data.id === 'string' && data.id.trim()) {
-        const { error } = await supabase
-          .from('main_tasks')
-          .delete()
-          .eq('id', data.id.trim())
-
+      // Helper: delete by resolved UUID
+      const doDelete = async (uuid: string, name: string, display_id: string) => {
+        const { error } = await supabase.from('main_tasks').delete().eq('id', uuid)
         if (error) {
-          console.error('[chat/route] DELETE_TASK (by id) error:', error)
+          console.error('[chat/route] DELETE_TASK error:', error)
           return { action_result: null, error: error.message }
         }
-        return { action_result: { deleted: true, id: data.id.trim() } }
+        return { action_result: { deleted: true, id: uuid, name, display_id } }
       }
 
+      // By UUID
+      if (typeof data.id === 'string' && data.id.trim()) {
+        return doDelete(data.id.trim(), String(data.name ?? ''), String(data.display_id ?? ''))
+      }
+
+      // By display_id (e.g. MT-013)
+      if (typeof data.display_id === 'string' && data.display_id.trim()) {
+        const { data: found, error } = await supabase
+          .from('main_tasks')
+          .select('id, name, display_id')
+          .ilike('display_id', data.display_id.trim())
+          .limit(1)
+          .single()
+        if (error || !found) return { action_result: null, error: `No task found with display_id "${data.display_id}".` }
+        return doDelete(found.id, found.name, found.display_id)
+      }
+
+      // By name fuzzy
       if (typeof data.name_query === 'string' && data.name_query.trim()) {
-        const { data: found, error: findError } = await supabase
+        const { data: found, error } = await supabase
           .from('main_tasks')
           .select('id, name, display_id')
           .ilike('name', `%${data.name_query.trim()}%`)
           .limit(1)
           .single()
-
-        if (findError || !found) {
-          return { action_result: null, error: `No task found matching "${data.name_query}".` }
-        }
-
-        const { error: deleteError } = await supabase
-          .from('main_tasks')
-          .delete()
-          .eq('id', found.id)
-
-        if (deleteError) {
-          console.error('[chat/route] DELETE_TASK (by name) error:', deleteError)
-          return { action_result: null, error: deleteError.message }
-        }
-        return { action_result: { deleted: true, id: found.id, name: found.name, display_id: found.display_id } }
+        if (error || !found) return { action_result: null, error: `No task found matching "${data.name_query}".` }
+        return doDelete(found.id, found.name, found.display_id)
       }
 
-      return { action_result: null, error: 'DELETE_TASK requires either "id" or "name_query".' }
+      return { action_result: null, error: 'DELETE_TASK requires "id", "display_id", or "name_query".' }
     }
 
     // ── QUERY_TASKS ──────────────────────────────────────────────────────────

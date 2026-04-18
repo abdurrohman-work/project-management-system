@@ -1,19 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 import type { SprintTaskStatus } from '@/types/database'
-
-// ─── Status mapping ───────────────────────────────────────────────────────────
-
-/**
- * Determines the rolled-over status for a sprint_task.
- *
- * not_started → not_started  (task was never picked up; carry forward unchanged)
- * everything else → partly_completed  (was in-flight: in_progress / blocked /
- *   stopped / partly_completed — all become partly_completed in the new sprint)
- */
-function rolloverStatus(oldStatus: SprintTaskStatus): SprintTaskStatus {
-  return oldStatus === 'not_started' ? 'not_started' : 'partly_completed'
-}
+import { recalculateAll } from '@/lib/calculations'
 
 // ─── Monday helper ────────────────────────────────────────────────────────────
 
@@ -76,14 +64,12 @@ export async function POST(request: NextRequest) {
 
     const tasksToRollover = sprintTasks ?? []
 
-    // ── 3. Create the new sprint (Monday of next week) ────────────────────────
+    // ── 3. Create the new sprint (starts this Monday) ─────────────────────────
     const today = new Date()
-    // The cron fires on Monday 1am UTC, so "next week" is +7 days from today's Monday
     const { monday: thisMonday } = weekBoundsOf(today)
-    const nextMonday = new Date(thisMonday + 'T00:00:00Z')
-    nextMonday.setUTCDate(nextMonday.getUTCDate() + 7)
-    const nextSunday = new Date(nextMonday)
-    nextSunday.setUTCDate(nextMonday.getUTCDate() + 6)
+    const startDate = new Date(thisMonday + 'T00:00:00Z')
+    const endDate = new Date(startDate)
+    endDate.setUTCDate(startDate.getUTCDate() + 6)
 
     const newSprintNumber = activeSprint.sprint_number + 1
 
@@ -92,8 +78,8 @@ export async function POST(request: NextRequest) {
       .insert({
         sprint_number: newSprintNumber,
         name:          `Sprint ${newSprintNumber}`,
-        start_date:    nextMonday.toISOString().slice(0, 10),
-        end_date:      nextSunday.toISOString().slice(0, 10),
+        start_date:    startDate.toISOString().slice(0, 10),
+        end_date:      endDate.toISOString().slice(0, 10),
         status:        'active',
       })
       .select()
@@ -103,14 +89,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: newSprintError.message }, { status: 500 })
     }
 
-    // ── 4. Roll over non-done tasks into the new sprint ───────────────────────
+    // ── 4. Roll over non-done tasks into the new sprint (always not_started) ──
     if (tasksToRollover.length > 0) {
       const inserts = tasksToRollover.map((t) => ({
         main_task_id:     t.main_task_id,
         sprint_id:        newSprint.id,
         name:             t.name,
         priority:         t.priority,
-        status:           rolloverStatus(t.status as SprintTaskStatus),
+        status:           'not_started' as SprintTaskStatus,
         rolled_over_from: t.id,
         blocked_by:       t.blocked_by   ?? null,
         link:             t.link         ?? null,
@@ -124,9 +110,26 @@ export async function POST(request: NextRequest) {
       if (insertError) {
         return NextResponse.json({ success: false, error: insertError.message }, { status: 500 })
       }
+
+      // ── 5. Update OLD sprint task statuses ──────────────────────────────────
+      // not_started → stays not_started; in_progress/blocked/stopped → partly_completed
+      const idsToMark = tasksToRollover
+        .filter((t) => t.status !== 'not_started')
+        .map((t) => t.id)
+
+      if (idsToMark.length > 0) {
+        const { error: updateError } = await supabase
+          .from('sprint_tasks')
+          .update({ status: 'partly_completed' as SprintTaskStatus })
+          .in('id', idsToMark)
+
+        if (updateError) {
+          return NextResponse.json({ success: false, error: updateError.message }, { status: 500 })
+        }
+      }
     }
 
-    // ── 5. Archive the old sprint ─────────────────────────────────────────────
+    // ── 6. Archive the old sprint ─────────────────────────────────────────────
     const { error: archiveError } = await supabase
       .from('sprints')
       .update({ status: 'archived' })
@@ -134,6 +137,14 @@ export async function POST(request: NextRequest) {
 
     if (archiveError) {
       return NextResponse.json({ success: false, error: archiveError.message }, { status: 500 })
+    }
+
+    // ── 7. Recalculate progress/time_spent for affected main tasks ────────────
+    const affectedMainTaskIds = Array.from(
+      new Set(tasksToRollover.map((t) => t.main_task_id as string))
+    )
+    for (const mtId of affectedMainTaskIds) {
+      await recalculateAll(mtId, supabase)
     }
 
     return NextResponse.json({

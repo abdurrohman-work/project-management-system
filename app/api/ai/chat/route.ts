@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createServerClient } from '@/lib/supabase-server'
+import {
+  onMainTaskStatusChanged,
+  onSprintTaskCreated,
+  onSprintTaskPatched,
+} from '@/lib/cascade'
 import type { TaskPriority, MainTaskStatus, SprintTaskStatus } from '@/types/database'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' })
@@ -294,12 +299,37 @@ async function executeAction(
 
       // Helper: update by resolved UUID
       const doUpdate = async (uuid: string) => {
+        let prevStatus: MainTaskStatus | undefined
+        if (typeof updates.status === 'string') {
+          const { data: current } = await supabase
+            .from('main_tasks').select('status').eq('id', uuid).single()
+          prevStatus = current?.status as MainTaskStatus | undefined
+        }
+
         const { data: updated, error } = await supabase
           .from('main_tasks').update(updates).eq('id', uuid).select().single()
         if (error) {
           console.error('[chat/route] UPDATE_TASK error:', error)
           return { action_result: null, error: error.message }
         }
+
+        if (
+          typeof updates.status === 'string' &&
+          prevStatus !== undefined &&
+          updates.status !== prevStatus
+        ) {
+          try {
+            await onMainTaskStatusChanged(
+              uuid,
+              updates.status as MainTaskStatus,
+              prevStatus,
+              supabase,
+            )
+          } catch (cascadeErr) {
+            console.error('[chat/route] UPDATE_TASK cascade error:', cascadeErr)
+          }
+        }
+
         return { action_result: updated }
       }
 
@@ -366,6 +396,13 @@ async function executeAction(
         console.error('[chat/route] CREATE_SUBTASK Supabase error:', error)
         return { action_result: null, error: error.message }
       }
+
+      try {
+        await onSprintTaskCreated(created.id, main_task_id, supabase)
+      } catch (cascadeErr) {
+        console.error('[chat/route] CREATE_SUBTASK cascade error:', cascadeErr)
+      }
+
       return { action_result: created }
     }
 
@@ -382,6 +419,16 @@ async function executeAction(
         if (!VALID_SPRINT_STATUSES.includes(status as SprintTaskStatus)) {
           return { action_result: null, error: `Invalid sprint task status: "${status}".` }
         }
+
+        const { data: existing, error: fetchErr } = await supabase
+          .from('sprint_tasks')
+          .select('main_task_id')
+          .eq('id', id)
+          .single()
+        if (fetchErr || !existing) {
+          return { action_result: null, error: `Sprint task not found: "${id}".` }
+        }
+
         const { data: updated, error } = await supabase
           .from('sprint_tasks')
           .update({ status: status as SprintTaskStatus })
@@ -393,6 +440,18 @@ async function executeAction(
           console.error('[chat/route] CHANGE_STATUS (sprint) Supabase error:', error)
           return { action_result: null, error: error.message }
         }
+
+        try {
+          await onSprintTaskPatched(
+            id,
+            status as SprintTaskStatus,
+            existing.main_task_id as string,
+            supabase,
+          )
+        } catch (cascadeErr) {
+          console.error('[chat/route] CHANGE_STATUS (sprint) cascade error:', cascadeErr)
+        }
+
         return { action_result: updated }
       }
 
@@ -400,6 +459,17 @@ async function executeAction(
       if (!VALID_MAIN_STATUSES.includes(status as MainTaskStatus)) {
         return { action_result: null, error: `Invalid main task status: "${status}".` }
       }
+
+      const { data: prev, error: prevErr } = await supabase
+        .from('main_tasks')
+        .select('status')
+        .eq('id', id)
+        .single()
+      if (prevErr || !prev) {
+        return { action_result: null, error: `Main task not found: "${id}".` }
+      }
+      const prevStatus = prev.status as MainTaskStatus
+
       const { data: updated, error } = await supabase
         .from('main_tasks')
         .update({ status: status as MainTaskStatus })
@@ -411,6 +481,20 @@ async function executeAction(
         console.error('[chat/route] CHANGE_STATUS (main) Supabase error:', error)
         return { action_result: null, error: error.message }
       }
+
+      if (status !== prevStatus) {
+        try {
+          await onMainTaskStatusChanged(
+            id,
+            status as MainTaskStatus,
+            prevStatus,
+            supabase,
+          )
+        } catch (cascadeErr) {
+          console.error('[chat/route] CHANGE_STATUS (main) cascade error:', cascadeErr)
+        }
+      }
+
       return { action_result: updated }
     }
 
@@ -476,19 +560,47 @@ async function executeAction(
         return { action_result: null, error: 'UPDATE_SUBTASK: no valid fields to update.' }
       }
 
-      if (typeof data.id === 'string' && data.id.trim()) {
+      const doUpdateSubtask = async (uuid: string) => {
+        const { data: existing, error: fetchErr } = await supabase
+          .from('sprint_tasks')
+          .select('main_task_id')
+          .eq('id', uuid)
+          .single()
+        if (fetchErr || !existing) {
+          return { action_result: null, error: `Sprint task not found: "${uuid}".` }
+        }
+
         const { data: updated, error } = await supabase
           .from('sprint_tasks')
           .update(updates)
-          .eq('id', data.id.trim())
+          .eq('id', uuid)
           .select()
           .single()
 
         if (error) {
-          console.error('[chat/route] UPDATE_SUBTASK (by id) error:', error)
+          console.error('[chat/route] UPDATE_SUBTASK error:', error)
           return { action_result: null, error: error.message }
         }
+
+        try {
+          const newStatus = typeof updates.status === 'string'
+            ? (updates.status as SprintTaskStatus)
+            : undefined
+          await onSprintTaskPatched(
+            uuid,
+            newStatus,
+            existing.main_task_id as string,
+            supabase,
+          )
+        } catch (cascadeErr) {
+          console.error('[chat/route] UPDATE_SUBTASK cascade error:', cascadeErr)
+        }
+
         return { action_result: updated }
+      }
+
+      if (typeof data.id === 'string' && data.id.trim()) {
+        return doUpdateSubtask(data.id.trim())
       }
 
       if (typeof data.name_query === 'string' && data.name_query.trim()) {
@@ -503,18 +615,7 @@ async function executeAction(
           return { action_result: null, error: `No sprint task found matching "${data.name_query}".` }
         }
 
-        const { data: updated, error: updateError } = await supabase
-          .from('sprint_tasks')
-          .update(updates)
-          .eq('id', found.id)
-          .select()
-          .single()
-
-        if (updateError) {
-          console.error('[chat/route] UPDATE_SUBTASK (by name) error:', updateError)
-          return { action_result: null, error: updateError.message }
-        }
-        return { action_result: updated }
+        return doUpdateSubtask(found.id)
       }
 
       return { action_result: null, error: 'UPDATE_SUBTASK requires either "id" or "name_query".' }

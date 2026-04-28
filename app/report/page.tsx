@@ -81,7 +81,7 @@ export default function ReportPage() {
 
   async function handleGenerate() {
     setGenerating(true)
-    const res  = await fetch('/api/reports/generate', { method: 'POST' })
+    const res  = await fetch('/api/cron/workload-report', { method: 'POST' })
     const json = await res.json()
     if (json.success) setRows(json.data as ReportRow[])
     setGenerating(false)

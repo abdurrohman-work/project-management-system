@@ -28,32 +28,48 @@ async function getActiveSprintId(
 /**
  * Rule A — sprint_task status → in_progress
  *
- * Auto-creates a workload_entry for the given sprint task if none exists.
- * Called whenever a sprint_task status is set to 'in_progress'.
+ * Ensures a workload_entry exists for the given sprint_task and that its
+ * status is at least 'in_progress' once the parent task is active.
+ *
+ *   - No entry exists                        → create one with status 'not_started'
+ *   - Entry exists with status 'not_started' → bump status to 'in_progress'
+ *   - Entry exists with any other status     → leave untouched
+ *
+ * Implementation uses UPSERT with `ON CONFLICT (sprint_task_id) DO NOTHING`
+ * (`ignoreDuplicates: true`) to avoid the count-then-insert race that could
+ * create duplicate rows when this function is invoked concurrently. A unique
+ * index on workload_entries.sprint_task_id (migration 005) backs the
+ * ON CONFLICT clause. The follow-up UPDATE only touches rows that are still
+ * 'not_started', so it is idempotent and never overwrites stronger statuses.
  */
 export async function ensureWorkloadEntry(
   sprintTaskId: string,
   supabase: TypedSupabaseClient
 ): Promise<void> {
-  const { count, error: countError } = await supabase
+  // Insert when missing; do nothing if the entry already exists.
+  const { error: upsertError } = await supabase
     .from('workload_entries')
-    .select('id', { count: 'exact', head: true })
-    .eq('sprint_task_id', sprintTaskId)
-
-  if (countError) throw new Error(`ensureWorkloadEntry (count): ${countError.message}`)
-
-  if (count === 0) {
-    const { error: insertError } = await supabase
-      .from('workload_entries')
-      .insert({
+    .upsert(
+      {
         sprint_task_id: sprintTaskId,
-        status: 'not_started',
-        planned_time: 0,
-        actual_time: 0,
-      })
+        status:         'not_started',
+        planned_time:   0,
+        actual_time:    0,
+      },
+      { onConflict: 'sprint_task_id', ignoreDuplicates: true }
+    )
 
-    if (insertError) throw new Error(`ensureWorkloadEntry (insert): ${insertError.message}`)
-  }
+  if (upsertError) throw new Error(`ensureWorkloadEntry (upsert): ${upsertError.message}`)
+
+  // Bump 'not_started' → 'in_progress'. Filtered update is a no-op for rows
+  // already in any other state, so this is safe to run after every upsert.
+  const { error: updateError } = await supabase
+    .from('workload_entries')
+    .update({ status: 'in_progress' })
+    .eq('sprint_task_id', sprintTaskId)
+    .eq('status', 'not_started')
+
+  if (updateError) throw new Error(`ensureWorkloadEntry (update): ${updateError.message}`)
 }
 
 // ─── Rule B ───────────────────────────────────────────────────────────────────

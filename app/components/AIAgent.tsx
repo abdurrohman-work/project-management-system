@@ -32,24 +32,28 @@ export default function AIAgent() {
   const pathname    = usePathname()
   const currentPage = pageFromPathname(pathname)
 
-  const [isOpen,       setIsOpen]       = useState(false)
-  const [isRecording,  setIsRecording]  = useState(false)
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [messages,     setMessages]     = useState<Message[]>([])
-  const [input,        setInput]        = useState('')
-  const [interimText,  setInterimText]  = useState('')
-  const [timer,        setTimer]        = useState(0)       // seconds
-  const [context,      setContext]      = useState<AgentContext | null>(null)
+  const [isOpen,         setIsOpen]         = useState(false)
+  const [isRecording,    setIsRecording]    = useState(false)
+  const [isGenerating,   setIsGenerating]   = useState(false)
+  const [messages,       setMessages]       = useState<Message[]>([])
+  const [input,          setInput]          = useState('')
+  const [interimText,    setInterimText]    = useState('')
+  const [timer,          setTimer]          = useState(0)       // seconds
+  const [context,        setContext]        = useState<AgentContext | null>(null)
+  const [voiceSupported, setVoiceSupported] = useState(true)
+  const [voiceError,     setVoiceError]     = useState<string | null>(null)
 
   const canvasRef       = useRef<HTMLCanvasElement>(null)
   const audioCtxRef     = useRef<AudioContext | null>(null)
   const analyserRef     = useRef<AnalyserNode | null>(null)
+  const streamRef       = useRef<MediaStream | null>(null)
   const animFrameRef    = useRef<number>(0)
   const tRef            = useRef<number>(0)
   const volRef          = useRef<number>(0)   // live audio volume — ref avoids callback churn
   const isRecordingRef  = useRef<boolean>(false)
   const recognitionRef  = useRef<{ stop: () => void } | null>(null)
   const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null)
+  const interimTextRef  = useRef<string>('')
   const messagesEndRef  = useRef<HTMLDivElement>(null)
 
   // ─── Canvas ribbon animation ─────────────────────────────────────────────
@@ -180,6 +184,23 @@ export default function AIAgent() {
     return () => window.removeEventListener('keydown', handler)
   }, [isOpen])
 
+  // Detect SpeechRecognition support once on mount
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    setVoiceSupported(!!SR)
+  }, [])
+
+  // Auto-dismiss voice error toast
+  useEffect(() => {
+    if (!voiceError) return
+    const t = setTimeout(() => setVoiceError(null), 4500)
+    return () => clearTimeout(t)
+  }, [voiceError])
+
+  // Keep interimText ref in sync (used by SR onend, where state may be stale)
+  useEffect(() => { interimTextRef.current = interimText }, [interimText])
+
   // ─── Timer formatter ──────────────────────────────────────────────────────
 
   function fmtTimer(s: number) {
@@ -285,24 +306,42 @@ export default function AIAgent() {
 
   // ─── Voice ────────────────────────────────────────────────────────────────
 
-  function stopVoice() {
+  // Shared teardown — releases mic stream, audio graph, and resets recording state.
+  // Safe to call multiple times. Does NOT call rec.stop() (caller decides).
+  function cleanupVoice() {
     isRecordingRef.current = false
-    recognitionRef.current?.stop()
-    audioCtxRef.current?.close()
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close() } catch { /* ignore */ }
+    }
     audioCtxRef.current = null
     analyserRef.current = null
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
     volRef.current = 0
     setIsRecording(false)
-    if (interimText.trim()) {
-      sendMessage(interimText.trim())
+
+    const pending = interimTextRef.current.trim()
+    if (pending) {
+      sendMessage(pending)
       setInterimText('')
+      interimTextRef.current = ''
     }
+  }
+
+  function stopVoice() {
+    try { recognitionRef.current?.stop() } catch { /* ignore */ }
+    recognitionRef.current = null
+    cleanupVoice()
   }
 
   function startVoice() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SR) return
+    if (!SR) {
+      setVoiceSupported(false)
+      setVoiceError('Voice input not supported in this browser. Use Chrome or Edge.')
+      return
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rec: any = new SR()
@@ -319,19 +358,27 @@ export default function AIAgent() {
         if (e.results[i].isFinal) {
           setInput(prev => (prev ? prev + ' ' : '') + txt.trim())
           setInterimText('')
+          interimTextRef.current = ''
         } else { interim += txt }
       }
       if (interim) setInterimText(interim)
     }
     rec.onerror = () => stopVoice()
+    // BUG-028: SR can end on its own (silence timeout, browser policy). Mirror stopVoice cleanup.
+    rec.onend = () => {
+      recognitionRef.current = null
+      cleanupVoice()
+    }
     rec.start()
     recognitionRef.current = rec
     isRecordingRef.current = true
     setIsRecording(true)
     setInterimText('')
+    interimTextRef.current = ''
 
     // Audio context — writes to volRef directly, no setState so no re-renders
     navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      streamRef.current = stream
       const ctx      = new AudioContext()
       const source   = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
@@ -351,10 +398,20 @@ export default function AIAgent() {
         requestAnimationFrame(tick)
       }
       tick()
-    }).catch(() => {})
+    }).catch(() => {
+      // BUG-027: mic permission denied or device unavailable
+      setVoiceError('Microphone access denied. Please allow mic permission in browser settings.')
+      try { recognitionRef.current?.stop() } catch { /* ignore */ }
+      recognitionRef.current = null
+      cleanupVoice()
+    })
   }
 
   function toggleVoice() {
+    if (!voiceSupported) {
+      setVoiceError('Voice input not supported in this browser. Use Chrome or Edge.')
+      return
+    }
     if (isRecording) stopVoice()
     else startVoice()
   }
@@ -471,7 +528,10 @@ export default function AIAgent() {
       {isOpen && !isRecording && (
         <button
           onClick={toggleVoice}
-          title="Ovozli kiritish"
+          disabled={!voiceSupported}
+          title={voiceSupported
+            ? 'Ovozli kiritish'
+            : 'Voice input not supported in this browser. Use Chrome or Edge.'}
           style={{
             position:        'fixed',
             bottom:          BTN_BOTTOM - 8,
@@ -479,13 +539,46 @@ export default function AIAgent() {
             width:           28, height: 28, borderRadius: '50%',
             backgroundColor: 'rgba(21,22,29,0.95)',
             border:          '1px solid rgba(255,255,255,0.1)',
-            cursor:          'pointer', display: 'flex', alignItems: 'center',
-            justifyContent:  'center', fontSize: 12,
-            zIndex:          1002, transition: 'background 0.15s',
+            cursor:          voiceSupported ? 'pointer' : 'not-allowed',
+            opacity:         voiceSupported ? 1 : 0.45,
+            display:         'flex',
+            alignItems:      'center',
+            justifyContent:  'center',
+            fontSize:        12,
+            zIndex:          1002,
+            transition:      'background 0.15s',
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(111,91,255,0.25)')}
+          onMouseEnter={e => {
+            if (voiceSupported) e.currentTarget.style.background = 'rgba(111,91,255,0.25)'
+          }}
           onMouseLeave={e => (e.currentTarget.style.background = 'rgba(21,22,29,0.95)')}
         >🎤</button>
+      )}
+
+      {/* Voice error toast — top-right, auto-dismiss after 4.5s */}
+      {voiceError && (
+        <div
+          role="alert"
+          onClick={() => setVoiceError(null)}
+          style={{
+            position:        'fixed',
+            top:             20,
+            right:           20,
+            maxWidth:        320,
+            padding:         '10px 14px',
+            backgroundColor: 'rgba(69,10,10,0.95)',
+            border:          '1px solid rgba(248,113,113,0.5)',
+            borderRadius:    8,
+            color:           '#fecaca',
+            fontSize:        13,
+            lineHeight:      1.4,
+            zIndex:          2000,
+            cursor:          'pointer',
+            boxShadow:       '0 6px 20px rgba(0,0,0,0.45)',
+          }}
+        >
+          {voiceError}
+        </div>
       )}
 
       {/* ── Overlay — starts after sidebar (240px) ───────────────────── */}

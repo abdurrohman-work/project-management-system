@@ -39,6 +39,84 @@ export function toMinutes(value: string | number): number {
   return Math.round(Number(s) || 0)
 }
 
+// ─── Asia/Tashkent week helpers ──────────────────────────────────────────────
+
+const TASHKENT_TZ = 'Asia/Tashkent'
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+}
+
+/**
+ * Returns the calendar parts (year/month/day/weekday) for `d` as observed in
+ * Asia/Tashkent. Uses Intl.DateTimeFormat so DST/offset changes (Tashkent has
+ * no DST today, but the API stays correct if that ever changes) are handled
+ * by the platform rather than ad-hoc UTC offset math.
+ */
+export function getTashkentParts(d: Date): {
+  year:    number
+  month:   number   // 1-12
+  day:     number
+  weekday: number   // 0=Sun … 6=Sat
+} {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: TASHKENT_TZ,
+    year:     'numeric',
+    month:    '2-digit',
+    day:      '2-digit',
+    weekday:  'short',
+  })
+
+  const parts = fmt.formatToParts(d)
+  const get = (type: string) =>
+    parts.find((p) => p.type === type)?.value ?? ''
+
+  return {
+    year:    Number(get('year')),
+    month:   Number(get('month')),
+    day:     Number(get('day')),
+    weekday: WEEKDAY_INDEX[get('weekday')] ?? 0,
+  }
+}
+
+/**
+ * Returns the Monday (YYYY-MM-DD) of the Asia/Tashkent calendar week
+ * containing the moment `d`.
+ *
+ * Example: at 2026-04-26T20:00:00Z (Sunday in UTC) the Tashkent local time is
+ * 2026-04-27 01:00 (Monday), so this returns "2026-04-27".
+ */
+export function tashkentMondayOf(d: Date): string {
+  const { year, month, day, weekday } = getTashkentParts(d)
+
+  // Days back to the most recent Monday (1 = Mon … 0 = Sun)
+  const diff = weekday === 0 ? -6 : 1 - weekday
+
+  // Use a synthetic UTC frame for date-only arithmetic. Calendar walk-back is
+  // identical regardless of timezone because we're stepping whole days.
+  const anchor = new Date(Date.UTC(year, month - 1, day))
+  anchor.setUTCDate(anchor.getUTCDate() + diff)
+  return anchor.toISOString().slice(0, 10)
+}
+
+/**
+ * Variant of `tashkentMondayOf` for inputs that are already YYYY-MM-DD
+ * calendar strings (e.g. workload_entries.start_date / due_date columns).
+ *
+ * The string is treated as a calendar date in Asia/Tashkent — there is no
+ * timezone ambiguity for date-only values, so we just resolve weekday from
+ * the same calendar day and walk back to Monday.
+ */
+export function tashkentMondayFromDateStr(s: string): string {
+  // Parse YYYY-MM-DD as UTC midnight so getUTCDay returns the calendar weekday
+  // for that date (no DST ambiguity for date-only values).
+  const utc = new Date(`${s}T00:00:00Z`)
+  const weekday = utc.getUTCDay()
+  const diff = weekday === 0 ? -6 : 1 - weekday
+  utc.setUTCDate(utc.getUTCDate() + diff)
+  return utc.toISOString().slice(0, 10)
+}
+
 // ─── minutesToHours ───────────────────────────────────────────────────────────
 
 /**

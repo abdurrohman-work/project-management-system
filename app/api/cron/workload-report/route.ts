@@ -1,22 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 import type { LoadCategory } from '@/types/database'
+import { tashkentMondayOf, tashkentMondayFromDateStr } from '@/lib/time'
 
 // ─── Week helpers ─────────────────────────────────────────────────────────────
 
 /** Returns YYYY-MM-DD string for a Date */
 function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10)
-}
-
-/** Returns Monday (start) of the week containing `d` (UTC) */
-function getMondayOf(d: Date): Date {
-  const day = d.getUTCDay() // 0=Sun, 1=Mon, …
-  const diff = day === 0 ? -6 : 1 - day
-  const mon = new Date(d)
-  mon.setUTCDate(d.getUTCDate() + diff)
-  mon.setUTCHours(0, 0, 0, 0)
-  return mon
 }
 
 /**
@@ -27,6 +18,9 @@ function getMondayOf(d: Date): Date {
  *   - Only due                 → due's Monday
  *   - Only start               → start's Monday
  *   - Neither                  → null (skip entry)
+ *
+ * Uses Asia/Tashkent calendar weeks via tashkentMondayFromDateStr so the
+ * weekday lookup matches the timezone the rest of the system operates in.
  */
 function weekStartFromStartDue(
   startDate: string | null,
@@ -35,19 +29,25 @@ function weekStartFromStartDue(
   if (!startDate && !dueDate) return null
 
   if (startDate && dueDate) {
-    const msMonday = toDateStr(getMondayOf(new Date(startDate + 'T00:00:00Z')))
-    const mdMonday = toDateStr(getMondayOf(new Date(dueDate   + 'T00:00:00Z')))
+    const msMonday = tashkentMondayFromDateStr(startDate)
+    const mdMonday = tashkentMondayFromDateStr(dueDate)
     // Same week → either; different weeks → prefer due date's week
     return msMonday === mdMonday ? msMonday : mdMonday
   }
 
-  if (dueDate) return toDateStr(getMondayOf(new Date(dueDate   + 'T00:00:00Z')))
-  return             toDateStr(getMondayOf(new Date(startDate! + 'T00:00:00Z')))
+  if (dueDate) return tashkentMondayFromDateStr(dueDate)
+  return             tashkentMondayFromDateStr(startDate!)
 }
 
-/** Generates an array of 12 {weekStart, weekEnd} windows, oldest first */
+/**
+ * Generates an array of 12 {weekStart, weekEnd} windows, oldest first.
+ * Anchors on the Asia/Tashkent Monday containing `today` so that running the
+ * job at Sunday 21:00 UTC (= Monday 02:00 Tashkent) bins entries into the
+ * Tashkent week the team just finished.
+ */
 function build12Weeks(today: Date): Array<{ weekStart: string; weekEnd: string }> {
-  const thisMonday = getMondayOf(today)
+  const thisMondayStr = tashkentMondayOf(today)
+  const thisMonday = new Date(`${thisMondayStr}T00:00:00Z`)
   const weeks: Array<{ weekStart: string; weekEnd: string }> = []
 
   for (let i = 11; i >= 0; i--) {

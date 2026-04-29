@@ -18,6 +18,16 @@ type AgentContext = {
   tasks: { id: string; display_id: string; name: string; status: string; priority: string }[]
 }
 
+type VoiceLang = 'uz-UZ' | 'ru-RU' | 'en-US'
+
+const VOICE_LANGS: { code: VoiceLang; label: string }[] = [
+  { code: 'uz-UZ', label: 'UZ' },
+  { code: 'ru-RU', label: 'RU' },
+  { code: 'en-US', label: 'EN' },
+]
+
+const VOICE_LANG_KEY = 'mohir:voice-lang'
+
 function pageFromPathname(p: string) {
   if (p.startsWith('/dashboard')) return 'dashboard'
   if (p.startsWith('/sprints'))   return 'sprints'
@@ -42,6 +52,8 @@ export default function AIAgent() {
   const [context,        setContext]        = useState<AgentContext | null>(null)
   const [voiceSupported, setVoiceSupported] = useState(true)
   const [voiceError,     setVoiceError]     = useState<string | null>(null)
+  const [voiceLang,      setVoiceLang]      = useState<VoiceLang>('uz-UZ')
+  const [contextError,   setContextError]   = useState<string | null>(null)
 
   const canvasRef       = useRef<HTMLCanvasElement>(null)
   const audioCtxRef     = useRef<AudioContext | null>(null)
@@ -167,15 +179,6 @@ export default function AIAgent() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Listen for task-created events from this component
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const task = (e as CustomEvent).detail
-      if (task?.id) window.dispatchEvent(new CustomEvent('mohir:task-created', { detail: task }))
-    }
-    return () => { void handler }
-  }, [])
-
   // Escape key closes overlay
   useEffect(() => {
     if (!isOpen) return
@@ -184,12 +187,24 @@ export default function AIAgent() {
     return () => window.removeEventListener('keydown', handler)
   }, [isOpen])
 
-  // Detect SpeechRecognition support once on mount
+  // Detect SpeechRecognition support once on mount + hydrate persisted lang
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     setVoiceSupported(!!SR)
+
+    try {
+      const stored = window.localStorage.getItem(VOICE_LANG_KEY)
+      if (stored && VOICE_LANGS.some(l => l.code === stored)) {
+        setVoiceLang(stored as VoiceLang)
+      }
+    } catch { /* localStorage may be blocked — fall back to default */ }
   }, [])
+
+  // Persist voiceLang changes
+  useEffect(() => {
+    try { window.localStorage.setItem(VOICE_LANG_KEY, voiceLang) } catch { /* ignore */ }
+  }, [voiceLang])
 
   // Auto-dismiss voice error toast
   useEffect(() => {
@@ -197,6 +212,13 @@ export default function AIAgent() {
     const t = setTimeout(() => setVoiceError(null), 4500)
     return () => clearTimeout(t)
   }, [voiceError])
+
+  // Auto-dismiss context error toast
+  useEffect(() => {
+    if (!contextError) return
+    const t = setTimeout(() => setContextError(null), 4500)
+    return () => clearTimeout(t)
+  }, [contextError])
 
   // Keep interimText ref in sync (used by SR onend, where state may be stale)
   useEffect(() => { interimTextRef.current = interimText }, [interimText])
@@ -224,7 +246,10 @@ export default function AIAgent() {
           id: t.id, display_id: t.display_id, name: t.name, status: t.status, priority: t.priority,
         })),
       })
-    } catch { /* silent */ }
+    } catch (err) {
+      console.error('[AIAgent] loadContext failed:', err)
+      setContextError("Failed to load task context. AI replies may be incomplete — check your connection.")
+    }
   }
 
   // ─── Open/close overlay ───────────────────────────────────────────────────
@@ -274,24 +299,28 @@ export default function AIAgent() {
       })
       const json = await res.json()
 
+      // Response shape: { success, data: { reply, action_result }, error? }
+      const replyText     = json?.data?.reply ?? json?.reply ?? ''
+      const actionResult  = json?.data?.action_result ?? json?.action_result ?? null
+
       // Replace loading bubble
       setMessages(prev => {
         const without = prev.filter(m => !m.isLoading)
         const reply: Message = {
           role:          'assistant',
-          content:       json.success ? json.reply : `Xatolik: ${json.error ?? "Noma'lum xato"}`,
-          action_result: json.action_result ?? null,
+          content:       json.success ? replyText : `Xatolik: ${json.error ?? "Noma'lum xato"}`,
+          action_result: actionResult,
         }
         return [...without, reply]
       })
 
       // Dispatch task-created event
-      if (json.action_result?.id && json.action_result?.name) {
-        window.dispatchEvent(new CustomEvent('mohir:task-created', { detail: json.action_result }))
+      if (actionResult?.id && actionResult?.name) {
+        window.dispatchEvent(new CustomEvent('mohir:task-created', { detail: actionResult }))
         setContext(prev => prev ? {
           ...prev,
           tasks: [
-            { id: json.action_result.id, display_id: json.action_result.display_id ?? '', name: json.action_result.name, status: json.action_result.status ?? 'backlog', priority: json.action_result.priority ?? 'medium' },
+            { id: actionResult.id, display_id: actionResult.display_id ?? '', name: actionResult.name, status: actionResult.status ?? 'backlog', priority: actionResult.priority ?? 'medium' },
             ...prev.tasks.slice(0, 19),
           ],
         } : prev)
@@ -345,7 +374,7 @@ export default function AIAgent() {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rec: any = new SR()
-    rec.lang            = 'uz-UZ'
+    rec.lang            = voiceLang
     rec.interimResults  = true
     rec.continuous      = true
     rec.maxAlternatives = 1
@@ -555,6 +584,50 @@ export default function AIAgent() {
         >🎤</button>
       )}
 
+      {/* Voice language selector — fixed, left of the mic button */}
+      {isOpen && !isRecording && voiceSupported && (
+        <div
+          title="Voice recognition language"
+          style={{
+            position:        'fixed',
+            bottom:          BTN_BOTTOM - 8,
+            left:            `calc(${BTN_LEFT} - 96px)`,
+            display:         'flex',
+            alignItems:      'center',
+            gap:             4,
+            padding:         '4px 6px',
+            backgroundColor: 'rgba(21,22,29,0.95)',
+            border:          '1px solid rgba(255,255,255,0.1)',
+            borderRadius:    14,
+            zIndex:          1002,
+          }}
+        >
+          {VOICE_LANGS.map(({ code, label }) => {
+            const active = voiceLang === code
+            return (
+              <button
+                key={code}
+                onClick={() => setVoiceLang(code)}
+                aria-pressed={active}
+                style={{
+                  padding:         '2px 8px',
+                  borderRadius:    10,
+                  border:          'none',
+                  fontSize:        11,
+                  fontWeight:      700,
+                  cursor:          'pointer',
+                  backgroundColor: active ? 'rgba(111,91,255,0.55)' : 'transparent',
+                  color:           active ? '#fff' : 'rgba(255,255,255,0.55)',
+                  transition:      'background 0.15s, color 0.15s',
+                }}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Voice error toast — top-right, auto-dismiss after 4.5s */}
       {voiceError && (
         <div
@@ -578,6 +651,32 @@ export default function AIAgent() {
           }}
         >
           {voiceError}
+        </div>
+      )}
+
+      {/* Context error toast — stacked below voice toast */}
+      {contextError && (
+        <div
+          role="alert"
+          onClick={() => setContextError(null)}
+          style={{
+            position:        'fixed',
+            top:             voiceError ? 80 : 20,
+            right:           20,
+            maxWidth:        320,
+            padding:         '10px 14px',
+            backgroundColor: 'rgba(69,10,10,0.95)',
+            border:          '1px solid rgba(248,113,113,0.5)',
+            borderRadius:    8,
+            color:           '#fecaca',
+            fontSize:        13,
+            lineHeight:      1.4,
+            zIndex:          2000,
+            cursor:          'pointer',
+            boxShadow:       '0 6px 20px rgba(0,0,0,0.45)',
+          }}
+        >
+          {contextError}
         </div>
       )}
 

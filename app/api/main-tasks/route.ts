@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, category, priority, taken_at, deadline, task_owner, note, blocked_by } = body
+    const { name, category, priority, status, taken_at, deadline, task_owner, note, blocked_by } = body
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
       return NextResponse.json({ success: false, error: 'name is required' }, { status: 400 })
@@ -37,6 +37,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (status !== undefined && !VALID_STATUSES.includes(status)) {
+      return NextResponse.json(
+        { success: false, error: `status must be one of: ${VALID_STATUSES.join(', ')}` },
+        { status: 400 }
+      )
+    }
+
     const supabase = createServerClient()
     const { data, error } = await supabase
       .from('main_tasks')
@@ -44,6 +51,7 @@ export async function POST(request: NextRequest) {
         name:       name.trim(),
         category:   category   ?? null,
         priority:   priority   ?? 'medium',
+        status:     (status as MainTaskStatus | undefined) ?? 'backlog',
         taken_at:   taken_at   ?? null,
         deadline:   deadline   ?? null,
         task_owner: task_owner ?? null,

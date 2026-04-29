@@ -143,6 +143,7 @@ One short line before any action:
 - English: "<task name> — confirm?"
 
 DELETE_TASK only: add "⚠️ qaytarib bo'lmaydi" (or language equiv). Still one line.
+After the user confirms a DELETE_TASK, the action JSON MUST include "confirmed": true alongside the task identifier (id / display_id / name_query). Without that flag the server refuses the delete.
 
 Accepted confirmations: ha / xa / yes / да / ok / ✓ / confirm / tasdiqlash / tasdiqlandi
 
@@ -408,17 +409,50 @@ async function executeAction(
 
     // ── CHANGE_STATUS ────────────────────────────────────────────────────────
     case 'CHANGE_STATUS': {
-      const id = typeof data.id === 'string' ? data.id.trim() : ''
       const type = typeof data.type === 'string' ? data.type : 'main'
       const status = typeof data.status === 'string' ? data.status : ''
 
-      if (!id) return { action_result: null, error: 'CHANGE_STATUS requires an id.' }
       if (!status) return { action_result: null, error: 'CHANGE_STATUS requires a status.' }
+
+      const rawId         = typeof data.id         === 'string' ? data.id.trim()         : ''
+      const rawDisplayId  = typeof data.display_id === 'string' ? data.display_id.trim() : ''
+      const rawNameQuery  = typeof data.name_query === 'string' ? data.name_query.trim() : ''
+
+      // Resolve UUID by id → display_id → name_query, mirroring UPDATE_TASK lookup.
+      const resolveId = async (
+        table: 'main_tasks' | 'sprint_tasks'
+      ): Promise<{ uuid: string } | { error: string }> => {
+        if (rawId) return { uuid: rawId }
+
+        if (rawDisplayId) {
+          const { data: found, error } = await supabase
+            .from(table).select('id').ilike('display_id', rawDisplayId).limit(1).single()
+          if (error || !found) {
+            return { error: `No ${table === 'main_tasks' ? 'main task' : 'sprint task'} found with display_id "${rawDisplayId}".` }
+          }
+          return { uuid: found.id }
+        }
+
+        if (rawNameQuery) {
+          const { data: found, error } = await supabase
+            .from(table).select('id').ilike('name', `%${rawNameQuery}%`).limit(1).single()
+          if (error || !found) {
+            return { error: `No ${table === 'main_tasks' ? 'main task' : 'sprint task'} found matching "${rawNameQuery}".` }
+          }
+          return { uuid: found.id }
+        }
+
+        return { error: 'CHANGE_STATUS requires "id", "display_id", or "name_query".' }
+      }
 
       if (type === 'sprint') {
         if (!VALID_SPRINT_STATUSES.includes(status as SprintTaskStatus)) {
           return { action_result: null, error: `Invalid sprint task status: "${status}".` }
         }
+
+        const resolved = await resolveId('sprint_tasks')
+        if ('error' in resolved) return { action_result: null, error: resolved.error }
+        const id = resolved.uuid
 
         const { data: existing, error: fetchErr } = await supabase
           .from('sprint_tasks')
@@ -459,6 +493,10 @@ async function executeAction(
       if (!VALID_MAIN_STATUSES.includes(status as MainTaskStatus)) {
         return { action_result: null, error: `Invalid main task status: "${status}".` }
       }
+
+      const resolved = await resolveId('main_tasks')
+      if ('error' in resolved) return { action_result: null, error: resolved.error }
+      const id = resolved.uuid
 
       const { data: prev, error: prevErr } = await supabase
         .from('main_tasks')
@@ -623,6 +661,14 @@ async function executeAction(
 
     // ── DELETE_TASK ──────────────────────────────────────────────────────────
     case 'DELETE_TASK': {
+      // Require explicit confirmation in the action payload before destructive op.
+      if (data.confirmed !== true) {
+        return {
+          action_result: null,
+          error: 'DELETE_TASK requires "confirmed": true in the action payload.',
+        }
+      }
+
       // Helper: delete by resolved UUID
       const doDelete = async (uuid: string, name: string, display_id: string) => {
         const { error } = await supabase.from('main_tasks').delete().eq('id', uuid)
@@ -785,19 +831,21 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: false,
           error: actionError,
-          reply,
+          data: { reply, action_result: null },
         })
       }
 
       return NextResponse.json({
         success: true,
-        reply,
-        action_result,
+        data: { reply, action_result },
       })
     }
 
     // No action — plain conversational reply
-    return NextResponse.json({ success: true, reply })
+    return NextResponse.json({
+      success: true,
+      data: { reply, action_result: null },
+    })
 
   } catch (err) {
     console.error('[chat/route] Unhandled error:', err)

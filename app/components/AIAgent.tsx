@@ -457,26 +457,39 @@ export default function AIAgent() {
 
   return (
     <>
-      {/* ── Orbital rings (fixed, same center as button, above overlay) ── */}
+      {/* ── Orbital rings (fixed, same center as button, above overlay) ──
+           Outer wrapper applies the translateX(-50%) centering. The inner
+           div runs animate-spin; its rotate transform would otherwise
+           overwrite the centering transform on the same element and the
+           ring would orbit around an offset origin. */}
       {isOpen && (isRecording || !!input.trim()) && (
         <>
-          <div className="animate-spin" style={{
+          <div style={{
             position: 'fixed', bottom: BTN_BOTTOM - 21, left: BTN_LEFT,
             transform: 'translateX(-50%)',
-            width: 96, height: 96, borderRadius: '50%',
-            border: '1px solid rgba(111,91,255,0.15)',
-            borderTop: '1px solid rgba(111,91,255,0.85)',
-            animationDuration: '4s', zIndex: 1001, pointerEvents: 'none',
-          }} />
-          <div className="animate-spin" style={{
+            width: 96, height: 96,
+            zIndex: 1001, pointerEvents: 'none',
+          }}>
+            <div className="animate-spin" style={{
+              width: '100%', height: '100%', borderRadius: '50%',
+              border: '1px solid rgba(111,91,255,0.15)',
+              borderTop: '1px solid rgba(111,91,255,0.85)',
+              animationDuration: '4s',
+            }} />
+          </div>
+          <div style={{
             position: 'fixed', bottom: BTN_BOTTOM - 28, left: BTN_LEFT,
             transform: 'translateX(-50%)',
-            width: 114, height: 114, borderRadius: '50%',
-            border: '1px solid rgba(96,165,250,0.1)',
-            borderBottom: '1px solid rgba(96,165,250,0.6)',
-            animationDuration: '5s', animationDirection: 'reverse',
+            width: 114, height: 114,
             zIndex: 1001, pointerEvents: 'none',
-          }} />
+          }}>
+            <div className="animate-spin" style={{
+              width: '100%', height: '100%', borderRadius: '50%',
+              border: '1px solid rgba(96,165,250,0.1)',
+              borderBottom: '1px solid rgba(96,165,250,0.6)',
+              animationDuration: '5s', animationDirection: 'reverse',
+            }} />
+          </div>
         </>
       )}
 
@@ -847,7 +860,7 @@ export default function AIAgent() {
                   fontStyle:   'italic',
                 }}>
                   {input || interimText
-                    ? <>{input}{interimText}</>
+                    ? <>{input}{input && interimText ? ' ' : ''}{interimText}</>
                     : <span style={{ color: 'rgba(160,155,220,0.5)' }}>Listening...</span>
                   }
                   <span style={{ animation: 'aiCursor 0.9s step-end infinite', fontStyle: 'normal' }}>|</span>

@@ -65,8 +65,9 @@ export default function AIAgent() {
   const isRecordingRef  = useRef<boolean>(false)
   const recognitionRef  = useRef<{ stop: () => void } | null>(null)
   const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null)
-  const interimTextRef  = useRef<string>('')
-  const messagesEndRef  = useRef<HTMLDivElement>(null)
+  const interimTextRef     = useRef<string>('')
+  const lastFinalIndexRef  = useRef<number>(-1)   // dedup: prevent re-processing already-finalized SR results
+  const messagesEndRef     = useRef<HTMLDivElement>(null)
 
   // ─── Canvas ribbon animation ─────────────────────────────────────────────
 
@@ -385,7 +386,13 @@ export default function AIAgent() {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const txt = e.results[i][0].transcript
         if (e.results[i].isFinal) {
-          setInput(prev => (prev ? prev + ' ' : '') + txt.trim())
+          // Guard: skip result indices already processed as final.
+          // With continuous:true some browsers reset e.resultIndex to 0 on new
+          // utterances, causing previously-finalized chunks to be appended again.
+          if (i > lastFinalIndexRef.current) {
+            lastFinalIndexRef.current = i
+            setInput(prev => (prev ? prev + ' ' : '') + txt.trim())
+          }
           setInterimText('')
           interimTextRef.current = ''
         } else { interim += txt }
@@ -401,6 +408,7 @@ export default function AIAgent() {
     rec.start()
     recognitionRef.current = rec
     isRecordingRef.current = true
+    lastFinalIndexRef.current = -1   // reset dedup counter for new session
     setIsRecording(true)
     setInterimText('')
     interimTextRef.current = ''

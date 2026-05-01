@@ -5,8 +5,10 @@ import {
   onMainTaskStatusChanged,
   onSprintTaskCreated,
   onSprintTaskPatched,
+  onWorkloadEntryChanged,
 } from '@/lib/cascade'
-import type { TaskPriority, MainTaskStatus, SprintTaskStatus } from '@/types/database'
+import { recalculateAll } from '@/lib/calculations'
+import type { TaskPriority, MainTaskStatus, SprintTaskStatus, WorkloadStatus } from '@/types/database'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' })
 
@@ -29,6 +31,7 @@ const VALID_MAIN_STATUSES: MainTaskStatus[] = ['backlog', 'in_progress', 'blocke
 const VALID_SPRINT_STATUSES: SprintTaskStatus[] = [
   'not_started', 'in_progress', 'done', 'partly_completed', 'blocked', 'stopped',
 ]
+const VALID_WORKLOAD_STATUSES: WorkloadStatus[] = ['not_started', 'in_progress', 'done', 'stopped', 'blocked']
 
 // ─── Request / Response types ─────────────────────────────────────────────────
 
@@ -92,11 +95,14 @@ If user describes a task on Dashboard, sprint tasks on Sprint, time on Workload 
 Actions you can perform:
 - CREATE_TASK — create a main task (epic)
 - UPDATE_TASK — update any field on an existing task by ID or name
-- CREATE_SUBTASK — create a sprint task under a main task in the active sprint
+- DELETE_TASK — delete a main task and all its subtasks (requires confirmed: true)
+- CREATE_SUBTASK — create one or multiple sprint tasks under a main task in the active sprint
 - UPDATE_SUBTASK — update any field on a sprint task
+- DELETE_SUBTASK — delete a sprint task (requires confirmed: true)
 - CHANGE_STATUS — change status of a main task or sprint task
 - ASSIGN_TASK — set task_owner on a main task
 - SET_DEADLINE — set or update deadline on a main task
+- UPDATE_WORKLOAD — update planned time, actual time, dates, or status on a workload entry (lookup by sprint_task_id)
 - QUERY_TASKS — answer questions about existing tasks from context data
 
 THINKING RULES:
@@ -122,6 +128,7 @@ PRIORITY VALUES: low | medium | high | critical (default: medium)
 STATUS VALUES:
 - main_task: backlog | in_progress | blocked | stopped | done
 - sprint_task: not_started | in_progress | done | partly_completed | blocked | stopped
+- workload: not_started | in_progress | done | stopped | blocked
 
 CONFIRMATION RULE:
 Before executing ANY action, show a clear summary and ask for confirmation:
@@ -345,16 +352,9 @@ async function executeAction(
     // ── CREATE_SUBTASK ───────────────────────────────────────────────────────
     case 'CREATE_SUBTASK': {
       const main_task_id = typeof data.main_task_id === 'string' ? data.main_task_id.trim() : ''
-      const name = typeof data.name === 'string' ? data.name.trim() : ''
-
       if (!main_task_id) return { action_result: null, error: 'CREATE_SUBTASK requires main_task_id.' }
-      if (!name) return { action_result: null, error: 'CREATE_SUBTASK requires a name.' }
 
-      const priority: TaskPriority = VALID_PRIORITIES.includes(data.priority as TaskPriority)
-        ? (data.priority as TaskPriority)
-        : 'medium'
-
-      // Fetch the currently active sprint
+      // Fetch the currently active sprint (shared for both paths)
       const { data: activeSprint, error: sprintError } = await supabase
         .from('sprints')
         .select('*')
@@ -366,6 +366,57 @@ async function executeAction(
         console.error('[chat/route] CREATE_SUBTASK: no active sprint found:', sprintError)
         return { action_result: null, error: 'No active sprint found. Cannot create sprint task.' }
       }
+
+      // ── Bulk path: data.tasks is an array ──────────────────────────────────
+      if (Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const results: unknown[] = []
+        for (const item of data.tasks) {
+          const taskName = typeof item === 'object' && item !== null && typeof (item as Record<string, unknown>).name === 'string'
+            ? ((item as Record<string, unknown>).name as string).trim()
+            : ''
+          if (!taskName) continue
+
+          const taskPriority: TaskPriority = VALID_PRIORITIES.includes(
+            (item as Record<string, unknown>).priority as TaskPriority,
+          )
+            ? ((item as Record<string, unknown>).priority as TaskPriority)
+            : 'medium'
+
+          const { data: created, error } = await supabase
+            .from('sprint_tasks')
+            .insert({
+              main_task_id,
+              sprint_id: activeSprint.id,
+              name: taskName,
+              priority: taskPriority,
+              status: 'not_started',
+            })
+            .select()
+            .single()
+
+          if (error) {
+            console.error('[chat/route] CREATE_SUBTASK (bulk) Supabase error:', error)
+            continue
+          }
+
+          try {
+            await onSprintTaskCreated(created.id, main_task_id, supabase)
+          } catch (cascadeErr) {
+            console.error('[chat/route] CREATE_SUBTASK (bulk) cascade error:', cascadeErr)
+          }
+
+          results.push(created)
+        }
+        return { action_result: results }
+      }
+
+      // ── Single path: data.name present ────────────────────────────────────
+      const name = typeof data.name === 'string' ? data.name.trim() : ''
+      if (!name) return { action_result: null, error: 'CREATE_SUBTASK requires a name or a tasks array.' }
+
+      const priority: TaskPriority = VALID_PRIORITIES.includes(data.priority as TaskPriority)
+        ? (data.priority as TaskPriority)
+        : 'medium'
 
       const { data: created, error } = await supabase
         .from('sprint_tasks')
@@ -695,6 +746,180 @@ async function executeAction(
       }
 
       return { action_result: null, error: 'DELETE_TASK requires "id", "display_id", or "name_query".' }
+    }
+
+    // ── DELETE_SUBTASK ───────────────────────────────────────────────────────
+    case 'DELETE_SUBTASK': {
+      if (data.confirmed !== true) {
+        return {
+          action_result: null,
+          error: 'DELETE_SUBTASK requires "confirmed": true in the action payload.',
+        }
+      }
+
+      const doDeleteSubtask = async (uuid: string, name: string, display_id: string) => {
+        // Fetch main_task_id before deletion for cascade recalculation
+        const { data: existing, error: fetchErr } = await supabase
+          .from('sprint_tasks')
+          .select('main_task_id')
+          .eq('id', uuid)
+          .single()
+        if (fetchErr || !existing) {
+          return { action_result: null, error: `Sprint task not found: "${uuid}".` }
+        }
+        const main_task_id = existing.main_task_id as string
+
+        const { error } = await supabase.from('sprint_tasks').delete().eq('id', uuid)
+        if (error) {
+          console.error('[chat/route] DELETE_SUBTASK error:', error)
+          return { action_result: null, error: error.message }
+        }
+
+        try {
+          await recalculateAll(main_task_id, supabase)
+        } catch (calcErr) {
+          console.error('[chat/route] DELETE_SUBTASK recalculate error:', calcErr)
+        }
+
+        return { action_result: { deleted: true, id: uuid, name, display_id } }
+      }
+
+      // By UUID
+      if (typeof data.id === 'string' && data.id.trim()) {
+        return doDeleteSubtask(data.id.trim(), String(data.name ?? ''), String(data.display_id ?? ''))
+      }
+
+      // By display_id (e.g. ST-012)
+      if (typeof data.display_id === 'string' && data.display_id.trim()) {
+        const { data: found, error } = await supabase
+          .from('sprint_tasks')
+          .select('id, name, display_id')
+          .ilike('display_id', data.display_id.trim())
+          .limit(1)
+          .single()
+        if (error || !found) return { action_result: null, error: `No sprint task found with display_id "${data.display_id}".` }
+        return doDeleteSubtask(found.id, found.name, found.display_id)
+      }
+
+      // By name fuzzy
+      if (typeof data.name_query === 'string' && data.name_query.trim()) {
+        const { data: found, error } = await supabase
+          .from('sprint_tasks')
+          .select('id, name, display_id')
+          .ilike('name', `%${data.name_query.trim()}%`)
+          .limit(1)
+          .single()
+        if (error || !found) return { action_result: null, error: `No sprint task found matching "${data.name_query}".` }
+        return doDeleteSubtask(found.id, found.name, found.display_id)
+      }
+
+      return { action_result: null, error: 'DELETE_SUBTASK requires "id", "display_id", or "name_query".' }
+    }
+
+    // ── UPDATE_WORKLOAD ──────────────────────────────────────────────────────
+    case 'UPDATE_WORKLOAD': {
+      const workloadUpdates: Record<string, unknown> = {}
+
+      if (typeof data.planned_time === 'number') workloadUpdates.planned_time = data.planned_time
+      if (typeof data.actual_time  === 'number') workloadUpdates.actual_time  = data.actual_time
+      if (typeof data.start_date   === 'string') workloadUpdates.start_date   = data.start_date || null
+      if (typeof data.due_date     === 'string') workloadUpdates.due_date     = data.due_date   || null
+      if (typeof data.status       === 'string') {
+        if (VALID_WORKLOAD_STATUSES.includes(data.status as WorkloadStatus)) {
+          workloadUpdates.status = data.status
+        }
+      }
+
+      if (Object.keys(workloadUpdates).length === 0) {
+        return { action_result: null, error: 'UPDATE_WORKLOAD: no valid fields to update.' }
+      }
+
+      // Resolve workload entry: direct id OR lookup by sprint_task_id
+      let entryId: string | null = null
+      let sprintTaskId: string | null = null
+      let mainTaskId:   string | null = null
+
+      if (typeof data.id === 'string' && data.id.trim()) {
+        // Direct workload_entry UUID
+        entryId = data.id.trim()
+        // Fetch sprint_task_id + main_task_id via join
+        const { data: entry, error: entryErr } = await supabase
+          .from('workload_entries')
+          .select('sprint_task_id, sprint_tasks(main_task_id)')
+          .eq('id', entryId)
+          .single()
+        if (entryErr || !entry) return { action_result: null, error: `Workload entry not found: "${entryId}".` }
+        sprintTaskId = entry.sprint_task_id as string
+        const st = entry.sprint_tasks as { main_task_id: string } | null
+        mainTaskId = st?.main_task_id ?? null
+      } else {
+        // Lookup by sprint_task_id
+        const rawStId = typeof data.sprint_task_id === 'string' ? data.sprint_task_id.trim() : ''
+        if (!rawStId) return { action_result: null, error: 'UPDATE_WORKLOAD requires "sprint_task_id" or "id".' }
+
+        sprintTaskId = rawStId
+
+        // Resolve sprint_task UUID if display_id given (e.g. ST-012)
+        if (rawStId.toUpperCase().startsWith('ST-')) {
+          const { data: st, error: stErr } = await supabase
+            .from('sprint_tasks')
+            .select('id, main_task_id')
+            .ilike('display_id', rawStId)
+            .limit(1)
+            .single()
+          if (stErr || !st) return { action_result: null, error: `Sprint task not found: "${rawStId}".` }
+          sprintTaskId = st.id
+          mainTaskId   = st.main_task_id as string
+        } else {
+          // Assume UUID — fetch main_task_id
+          const { data: st, error: stErr } = await supabase
+            .from('sprint_tasks')
+            .select('main_task_id')
+            .eq('id', rawStId)
+            .single()
+          if (stErr || !st) return { action_result: null, error: `Sprint task not found: "${rawStId}".` }
+          mainTaskId = st.main_task_id as string
+        }
+
+        // Find workload entry for this sprint_task
+        const { data: entry, error: entryErr } = await supabase
+          .from('workload_entries')
+          .select('id')
+          .eq('sprint_task_id', sprintTaskId)
+          .limit(1)
+          .single()
+        if (entryErr || !entry) return { action_result: null, error: `No workload entry found for sprint task "${rawStId}".` }
+        entryId = entry.id
+      }
+
+      // Patch the entry
+      const { data: updated, error: patchErr } = await supabase
+        .from('workload_entries')
+        .update(workloadUpdates)
+        .eq('id', entryId)
+        .select()
+        .single()
+
+      if (patchErr) {
+        console.error('[chat/route] UPDATE_WORKLOAD patch error:', patchErr)
+        return { action_result: null, error: patchErr.message }
+      }
+
+      // Cascade: propagate status change if applicable
+      if (typeof workloadUpdates.status === 'string' && mainTaskId) {
+        try {
+          await onWorkloadEntryChanged(
+            mainTaskId,
+            supabase,
+            sprintTaskId ?? undefined,
+            workloadUpdates.status as WorkloadStatus,
+          )
+        } catch (cascadeErr) {
+          console.error('[chat/route] UPDATE_WORKLOAD cascade error:', cascadeErr)
+        }
+      }
+
+      return { action_result: updated }
     }
 
     // ── QUERY_TASKS ──────────────────────────────────────────────────────────
